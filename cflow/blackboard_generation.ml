@@ -144,6 +144,7 @@ module Preblackboard =
     type mutex =
       | Lock_side_effect of step_id * CI.Po.K.agent_id * CI.Po.K.agent_id * Instantiation.site_name
       | Lock_agent of step_id * CI.Po.K.agent_id
+      | Lock_site of step_id * CI.Po.K.agent_id * Instantiation.site_name
       | Lock_rectangular of step_id * CI.Po.K.agent_id
       | Lock_links of step_id * (CI.Po.K.agent_id * CI.Po.K.agent_id)
 
@@ -158,6 +159,7 @@ module Preblackboard =
       | Link of step_id * CI.Po.K.agent_id * CI.Po.K.agent_id
 
     let _ = Link (0,0,0) (* do not remove, it will be necessary for dealing effectively with unary/binary rule *)
+    let _ = Lock_site (0,0,0) (* tmp, to enable compilation *)
 
     type predicate_value =
       | Counter of int
@@ -248,6 +250,7 @@ module Preblackboard =
       | Mutex (Lock_rectangular (int,int2)) -> Loggers.fprintf log "Mutex_inv (Step-id:%i,Agent_id:%i)" int int2
       | Mutex (Lock_links(int,(int2,int3))) -> Loggers.fprintf log "Mutex_links (Step-id:%i,%i-%i)" int int2 int3
       | Mutex (Lock_side_effect (int,int2,int3,int4)) -> Loggers.fprintf log "Mutex_side_effect (Step-id:%i,%i/%i.%i)" int int2 int3 int4
+      | Mutex (Lock_site (int,int2,int3)) -> Loggers.fprintf log "Mutex_site Step-id:%i, (%i,%i)" int int2 int3
       | Fictitious -> Loggers.fprintf log "Fictitious"
 
     let print_known log t x =
@@ -282,6 +285,7 @@ module Preblackboard =
 
     let print_predicate_value log x =
       Loggers.fprintf log "%s" (string_of_predicate_value x)
+
     let print_predicate_id log blackboard i =
       let predicate_info = A.get blackboard.pre_column_map_inv i in
       let () = Loggers.fprintf log "Predicate: %i " i in
@@ -475,8 +479,39 @@ module Preblackboard =
       | Pointer _ | Mutex _  | Link _ | Fictitious -> None
 
 
-    let rec bind parameter handler log_info error blackboard _predicate predicate_id ag_id =
-      let error,log_info,blackboard,sid = allocate parameter handler log_info error blackboard (Here ag_id)
+    let rec get_predicate_id
+        parameter handler log_info error blackboard predicate  =
+    let ag_id = agent_id_of_predicate predicate in
+    let map = blackboard.pre_column_map in
+    let map_inv = blackboard.pre_column_map_inv in
+    match PredicateMap.find_option predicate map with
+    | Some sid -> error,log_info,blackboard,sid
+    | None ->
+      let sid'= blackboard.pre_ncolumn + 1 in
+      let map' = PredicateMap.add predicate sid' map in
+      let _  = A.set map_inv sid' predicate in
+      let map_inv' = map_inv in
+      let _ = A.set blackboard.history_of_predicate_values_to_predicate_id sid' (C.create parameter.CI.Po.K.H.cache_size) in
+      let blackboard =
+        {blackboard
+         with
+          pre_ncolumn = sid' ;
+          pre_column_map = map' ;
+          pre_column_map_inv = map_inv'
+        }
+      in
+      let error,log_info,blackboard =
+        match ag_id
+        with
+        | None ->
+          error, log_info, blackboard
+        | Some ag_id ->
+          bind_predicate parameter handler log_info error blackboard sid' ag_id
+      in
+      error,log_info,blackboard,sid'
+    and
+      bind_predicate parameter handler log_info error blackboard  predicate_id ag_id =
+      let error,log_info,blackboard,sid = get_predicate_id parameter handler log_info error blackboard (Here ag_id)
       in
       let old_set =
         try
@@ -497,36 +532,6 @@ module Preblackboard =
           parameter log_info error __POS__
           ~message:"bind, Out of bound access"
           (Failure "bind") blackboard
-    and
-      allocate parameter handler log_info error blackboard predicate  =
-      let ag_id = agent_id_of_predicate predicate in
-      let map = blackboard.pre_column_map in
-      let map_inv = blackboard.pre_column_map_inv in
-      match PredicateMap.find_option predicate map with
-      | Some sid -> error,log_info,blackboard,sid
-      | None ->
-        let sid'= blackboard.pre_ncolumn + 1 in
-        let map' = PredicateMap.add predicate sid' map in
-        let _  = A.set map_inv sid' predicate in
-        let map_inv' = map_inv in
-        let _ = A.set blackboard.history_of_predicate_values_to_predicate_id sid' (C.create parameter.CI.Po.K.H.cache_size) in
-        let blackboard =
-          {blackboard
-           with
-            pre_ncolumn = sid' ;
-            pre_column_map = map' ;
-            pre_column_map_inv = map_inv'
-          }
-        in
-        let error,log_info,blackboard =
-          match ag_id
-          with
-          | None ->
-            error, log_info, blackboard
-          | Some ag_id ->
-            bind parameter handler log_info error blackboard predicate sid' ag_id
-        in
-        error,log_info,blackboard,sid'
 
     let create_agent _parameter _handler error blackboard agent_name agent_id  =
       let old_list =
@@ -542,7 +547,7 @@ module Preblackboard =
 
     let free_agent parameter handler log_info error blackboard agent_id =
       let error,log_info,blackboard,predicate_id =
-        allocate parameter handler log_info error blackboard (Here agent_id)  in
+        get_predicate_id parameter handler log_info error blackboard (Here agent_id)  in
       let error,log_info,set =
         try
           error,log_info,A.get blackboard.predicate_id_list_related_to_predicate_id predicate_id
@@ -569,86 +574,8 @@ module Preblackboard =
       then free_agent parameter handler log_info error blackboard agent_id
       else error,log_info,blackboard
 
-    let predicates_of_action_no_subs parameter handler log_info error blackboard init action =
-      match action with
-      | Instantiation.Create (ag,interface) ->
-        let ag_id = CI.Po.K.agent_id_of_agent ag in
-        let agent_name = CI.Po.K.agent_name_of_agent ag in
-        let error,blackboard = create_agent parameter handler error blackboard agent_name ag_id in
-        let error,log_info,blackboard =
-          if init
-          then
-            error,log_info,blackboard
-          else
-            free_agent_if_it_exists parameter handler log_info error blackboard ag_id in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Here ag_id) in
-        List.fold_left
-          (fun (error,log_info,blackboard,list1,list2) (s_id,opt) ->
-             let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site(ag_id,s_id)) in
-             let list1 = (predicate_id,Free)::list1 in
-             let list2 = (predicate_id,Undefined)::list2 in
-             match opt
-             with
-             | None -> error,log_info,blackboard,list1,list2
-             | Some x ->
-               let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Internal_state (ag_id,s_id)) in
-               error,
-               log_info,
-               blackboard,
-               (predicate_id,Internal_state_is x)::list1,
-               (predicate_id,Undefined)::list2
-          )
-          (error,log_info,blackboard,[predicate_id,Present],[predicate_id,Undefined])
-          interface
-      | Instantiation.Mod_internal (site,int)  ->
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Internal_state (CI.Po.K.agent_id_of_site site,CI.Po.K.site_name_of_site site)) in
-        error,log_info,blackboard,[predicate_id,Internal_state_is int],[]
-      | Instantiation.Bind_to (s1,s2) ->
-        let ag_id1 = CI.Po.K.agent_id_of_site s1 in
-        let ag_id2 = CI.Po.K.agent_id_of_site s2 in
-        let agent_name2 = CI.Po.K.agent_name_of_site s2 in
-        let site_id1 = CI.Po.K.site_name_of_site s1 in
-        let site_id2 = CI.Po.K.site_name_of_site s2 in
-        let error,log_info,blackboard,predicate_id1 = allocate parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
-        let error,log_info,blackboard,predicate_id2 = allocate parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
-        error,log_info,blackboard,
-        [predicate_id1,Bound_to (predicate_id2,ag_id2,agent_name2,site_id2)],[]
-      | Instantiation.Bind (s1,s2) ->
-        let ag_id1 = CI.Po.K.agent_id_of_site s1 in
-        let ag_id2 = CI.Po.K.agent_id_of_site s2 in
-        let agent_name1 = CI.Po.K.agent_name_of_site s1 in
-        let agent_name2 = CI.Po.K.agent_name_of_site s2 in
-        let site_id1 = CI.Po.K.site_name_of_site s1 in
-        let site_id2 = CI.Po.K.site_name_of_site s2 in
-        let error,log_info,blackboard,predicate_id1 = allocate parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
-        let error,log_info,blackboard,predicate_id2 = allocate parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
-        error,log_info,blackboard,
-        [predicate_id1,Bound_to (predicate_id2,ag_id2,agent_name2,site_id2);
-         predicate_id2,Bound_to (predicate_id1,ag_id1,agent_name1,site_id1)],[]
-      | Instantiation.Free s ->
-        let ag_id = CI.Po.K.agent_id_of_site s in
-        let site_id = CI.Po.K.site_name_of_site s in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
-        error,log_info,blackboard,[predicate_id,Free],[]
-      | Instantiation.Remove ag ->
-        let ag_id = CI.Po.K.agent_id_of_agent ag in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Here ag_id) in
-        let error,log_info,blackboard = free_agent parameter handler log_info error blackboard ag_id in
-        let set =
-          A.get
-            blackboard.predicate_id_list_related_to_predicate_id
-            predicate_id
-        in
-        let error,blackboard,list =
-          PredicateidSet.fold
-            (fun predicateid (error,blackboard,list) ->
-               error,blackboard,(predicateid,Undefined)::list)
-            set
-            (error,blackboard,[predicate_id,Undefined])
-        in
-        error,log_info,blackboard,list,[]
-
-    let predicates_of_action_subs parameter handler log_info error blackboard init action =
+    let predicates_of_action
+        ~with_agent_permutation parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard init action =
       match action with
       | Instantiation.Create (ag,interface) ->
         let ag_id = CI.Po.K.agent_id_of_agent ag in
@@ -661,17 +588,17 @@ module Preblackboard =
           else
             free_agent_if_it_exists parameter handler log_info error blackboard ag_id
         in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Here ag_id) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Here ag_id) in
         List.fold_left
           (fun (error,log_info,blackboard,list1,list2) (s_id,opt) ->
-             let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site(ag_id,s_id)) in
+             let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Bound_site(ag_id,s_id)) in
              let list1 = (predicate_id,Free)::list1 in
              let list2 = (predicate_id,Undefined)::list2 in
              match opt
              with
              | None -> error,log_info,blackboard,list1,list2
              | Some x ->
-               let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Internal_state (ag_id,s_id)) in
+               let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Internal_state (ag_id,s_id)) in
                error,
                log_info,
                blackboard,
@@ -681,7 +608,7 @@ module Preblackboard =
           (error,log_info,blackboard,[predicate_id,Present],[predicate_id,Undefined])
           interface
       | Instantiation.Mod_internal (site,int)  ->
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Internal_state (CI.Po.K.agent_id_of_site site,CI.Po.K.site_name_of_site site)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Internal_state (CI.Po.K.agent_id_of_site site,CI.Po.K.site_name_of_site site)) in
         error,log_info,blackboard,[predicate_id,Internal_state_is int],[]
       | Instantiation.Bind_to (s1,s2) ->
         let ag_id1 = CI.Po.K.agent_id_of_site s1 in
@@ -689,8 +616,8 @@ module Preblackboard =
         let agent_name2 = CI.Po.K.agent_name_of_site s2 in
         let site_id1 = CI.Po.K.site_name_of_site s1 in
         let site_id2 = CI.Po.K.site_name_of_site s2 in
-        let error,log_info,blackboard,predicate_id1 = allocate parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
-        let error,log_info,blackboard,predicate_id2 = allocate parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
+        let error,log_info,blackboard,predicate_id1 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
+        let error,log_info,blackboard,predicate_id2 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
         error,log_info,blackboard,
         [predicate_id1,Bound_to (predicate_id2,ag_id2,agent_name2,site_id2)],[]
       | Instantiation.Bind (s1,s2) ->
@@ -700,20 +627,26 @@ module Preblackboard =
         let agent_name2 = CI.Po.K.agent_name_of_site s2 in
         let site_id1 = CI.Po.K.site_name_of_site s1 in
         let site_id2 = CI.Po.K.site_name_of_site s2 in
-        let error,log_info,blackboard,predicate_id1 = allocate parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
-        let error,log_info,blackboard,predicate_id2 = allocate parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
+        let error,log_info,blackboard,predicate_id1 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
+        let error,log_info,blackboard,predicate_id2 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
         error,log_info,blackboard,
         [predicate_id1,Bound_to (predicate_id2,ag_id2,agent_name2,site_id2);
          predicate_id2,Bound_to (predicate_id1,ag_id1,agent_name1,site_id1)],[]
       | Instantiation.Free s ->
         let ag_id = CI.Po.K.agent_id_of_site s in
         let site_id = CI.Po.K.site_name_of_site s in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
         error,log_info,blackboard,[predicate_id,Free],[]
       | Instantiation.Remove ag ->
         let ag_id = CI.Po.K.agent_id_of_agent ag in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Here ag_id) in
-        (*               let error,blackboard = free_agent parameter handler error blackboard ag_id in *)
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Here ag_id) in
+        let error, log_info, blackboard =
+          if with_agent_permutation
+          then error, log_info, blackboard
+          else
+            (* If traces are not seen up to permutation of agents, there is no way to reuse this agent later on *)
+            free_agent parameter handler log_info error blackboard ag_id
+        in
         let set =
           A.get
             blackboard.predicate_id_list_related_to_predicate_id
@@ -728,24 +661,20 @@ module Preblackboard =
         in
         error,log_info,blackboard,list,[]
 
-    let predicates_of_action bool =
-      if bool then predicates_of_action_subs
-      else predicates_of_action_no_subs
-
     let predicates_of_test  parameter handler log_info error blackboard test =
       match test
       with
       | Instantiation.Is_Here (agent) ->
         let ag_id = CI.Po.K.agent_id_of_agent agent in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Here ag_id) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Here ag_id) in
         error,log_info,blackboard,[predicate_id,Present]
       | Instantiation.Has_Internal(site,int) ->
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Internal_state (CI.Po.K.agent_id_of_site site,CI.Po.K.site_name_of_site site)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Internal_state (CI.Po.K.agent_id_of_site site,CI.Po.K.site_name_of_site site)) in
         error,log_info,blackboard,[predicate_id,Internal_state_is int]
       | Instantiation.Is_Free s ->
         let ag_id = CI.Po.K.agent_id_of_site s in
         let site_id = CI.Po.K.site_name_of_site s in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
         error,log_info,blackboard,[predicate_id,Free]
       | Instantiation.Is_Bound_to  (s1,s2) ->
         let ag_id1 = CI.Po.K.agent_id_of_site s1 in
@@ -754,21 +683,21 @@ module Preblackboard =
         let agent_name2 = CI.Po.K.agent_name_of_site s2 in
         let site_id1 = CI.Po.K.site_name_of_site s1 in
         let site_id2 = CI.Po.K.site_name_of_site s2 in
-        let error,log_info,blackboard,predicate_id1 = allocate parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
-        let error,log_info,blackboard,predicate_id2 = allocate parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
+        let error,log_info,blackboard,predicate_id1 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id1,site_id1)) in
+        let error,log_info,blackboard,predicate_id2 = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id2,site_id2)) in
         error,log_info,blackboard,
         [predicate_id1,Bound_to (predicate_id2,ag_id2,agent_name2,site_id2);
          predicate_id2,Bound_to (predicate_id1,ag_id1,agent_name1,site_id1)]
       | Instantiation.Is_Bound s ->
         let ag_id = CI.Po.K.agent_id_of_site s in
         let site_id = CI.Po.K.site_name_of_site s in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
         error,log_info,blackboard,
         [predicate_id,Bound]
       | Instantiation.Has_Binding_type (s,(agent_name,site_name)) ->
         let ag_id = CI.Po.K.agent_id_of_site s in
         let site_id = CI.Po.K.site_name_of_site s in
-        let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
+        let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Bound_site (ag_id,site_id)) in
         error,log_info,blackboard,
         [predicate_id,Bound_to_type (agent_name,site_name)]
 
@@ -875,7 +804,7 @@ module Preblackboard =
       let agent_id = CI.Po.K.agent_id_of_site site in
       let site_name = CI.Po.K.site_name_of_site site in
       let error,log_info,blackboard,predicate_target_id =
-        allocate parameter handler log_info error blackboard (Bound_site (agent_id,site_name))  in
+        get_predicate_id parameter handler log_info error blackboard (Bound_site (agent_id,site_name))  in
       let former_states =
         A.get blackboard.history_of_predicate_values_to_predicate_id predicate_target_id
       in
@@ -1562,7 +1491,7 @@ module Preblackboard =
           (fun x l (error,log_info,blackboard,rule_agent_id_mutex,rule_agent_id_subs,mixture_agent_id_mutex,fictitious_list,fictitious_local_list,set,init_step) ->
              (* the following mutex is used to encode the fact that the agent x in the lhs of the rule must be associated with exactely one agent in the mixture *)
              let predicate_info = Mutex (Lock_agent (step_id,x)) in
-             let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info in
+             let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info in
              let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id blackboard init_step in
              let rule_agent_id_mutex = AgentIdMap.add x predicate_id rule_agent_id_mutex in
              let fictitious_local_list = predicate_id::fictitious_local_list in
@@ -1572,7 +1501,7 @@ module Preblackboard =
                then
                  begin
                    let predicate_info = Pointer (step_id,x) in
-                   let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info in
+                   let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info in
                    let rule_agent_id_subs =  AgentIdMap.add x predicate_id rule_agent_id_subs in
                    let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id blackboard init_step in
                    error,log_info,blackboard,rule_agent_id_subs,init_step
@@ -1614,7 +1543,7 @@ module Preblackboard =
                               ()
                           in
                           let predicate_info = Mutex (Lock_rectangular (step_id,id)) in
-                          let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info in
+                          let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info in
                           let mixture_agent_id_mutex = AgentIdMap.add id predicate_id mixture_agent_id_mutex in
                           let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id blackboard init_step in
                           error,log_info,blackboard,mixture_agent_id_mutex,set',init_step
@@ -1641,7 +1570,7 @@ module Preblackboard =
         AgentId2Set.fold
           (fun x  (error,log_info,blackboard,links_mutex,fictitious_list,fictitious_local_list,init_step) ->
              let predicate_info = Mutex (Lock_links (step_id,x)) in
-             let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info in
+             let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info in
              let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id blackboard init_step in
              let links_mutex = AgentId2Map.add x predicate_id links_mutex in
              let fictitious_local_list = predicate_id::fictitious_local_list in
@@ -1747,7 +1676,7 @@ module Preblackboard =
                        begin
                          let rule_ag_id = CI.Po.K.agent_id_of_agent (CI.Po.K.agent_of_site site) in
                          let predicate_info = Mutex (Lock_side_effect (step_id,rule_ag_id,rule_ag_id,CI.Po.K.site_name_of_site site)) in
-                         let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info  in
+                         let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info  in
                          let  error,log_info,blackboard,_step_id =
                            init_fictitious_action log_info error predicate_id  blackboard init_step
                          in
@@ -1804,7 +1733,8 @@ module Preblackboard =
             let error,log_info,blackboard,action_map,test_map =
               List.fold_left
                 (fun (error,log_info,blackboard,action_map,test_map) action ->
-                   let error,log_info,blackboard,action_list,test_list = predicates_of_action true parameter handler log_info error blackboard init action in
+                   let error,log_info,blackboard,action_list,test_list = predicates_of_action
+                       ~with_agent_permutation:true parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard init action in
                    error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
                 (error,log_info,blackboard,PredicateidMap.empty,test_map)
                 action_list in
@@ -1937,7 +1867,7 @@ module Preblackboard =
                            | _ ->
                              begin
                                let predicate_info = Mutex (Lock_side_effect (step_id,rule_ag_id,mixture_ag_id,CI.Po.K.site_name_of_site site)) in
-                               let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info  in
+                               let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info  in
                                let fictitious_list = predicate_id::fictitious_list in
                                let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id  blackboard init_step in
                                let error,log_info,blackboard =
@@ -2007,7 +1937,9 @@ module Preblackboard =
                   let error,log_info,blackboard,action_map,test_map =
                     List.fold_left
                       (fun (error,log_info,blackboard,action_map,test_map) action ->
-                         let error,log_info,blackboard,action_list,test_list = predicates_of_action true parameter handler log_info error blackboard init action in
+                         let error,log_info,blackboard,action_list,test_list = predicates_of_action
+                             ~with_agent_permutation:true parameter handler log_info error blackboard init action
+                         in
                          error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
                       (error,log_info,blackboard,PredicateidMap.empty,test_map)
                       action_list in
@@ -2222,7 +2154,10 @@ module Preblackboard =
                            let error,log_info,blackboard,action_map,test_map =
                              List.fold_left
                                (fun (error,log_info,blackboard,action_map,test_map) action ->
-                                  let error,log_info,blackboard,action_list,test_list = predicates_of_action true parameter handler log_info error blackboard init action in
+                                  let error,log_info,blackboard,action_list,test_list =
+                                    predicates_of_action
+                                      ~with_agent_permutation:true parameter handler log_info error blackboard init action
+                                  in
                                   let action_list =
                                     List.rev_map
                                       (fun (pid,x)
@@ -2374,7 +2309,7 @@ module Preblackboard =
                  begin
                    let rule_ag_id = CI.Po.K.agent_id_of_agent (CI.Po.K.agent_of_site site) in
                    let predicate_info = Mutex (Lock_side_effect (step_id,rule_ag_id,rule_ag_id,CI.Po.K.site_name_of_site site)) in
-                   let error,log_info, blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info  in
+                   let error,log_info, blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info  in
                    let  error,log_info,blackboard,_step_id =
                      init_fictitious_action log_info error predicate_id  blackboard init_step
                    in
@@ -2431,7 +2366,9 @@ module Preblackboard =
       let error,log_info,blackboard,action_map,test_map =
         List.fold_left
           (fun (error,log_info,blackboard,action_map,test_map) action ->
-             let error,log_info,blackboard,action_list,test_list = predicates_of_action true parameter handler log_info error blackboard init action in
+             let error,log_info,blackboard,action_list,test_list = predicates_of_action
+                 ~with_agent_permutation:true parameter handler log_info error blackboard init action
+             in
              error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
           (error,log_info,blackboard,PredicateidMap.empty,test_map)
           action_list in
@@ -2596,7 +2533,7 @@ module Preblackboard =
                  begin
                    let rule_ag_id = CI.Po.K.agent_id_of_agent (CI.Po.K.agent_of_site site) in
                    let predicate_info = Mutex (Lock_side_effect (step_id,rule_ag_id,rule_ag_id,CI.Po.K.site_name_of_site site)) in
-                   let error,log_info,blackboard,predicate_id = allocate parameter handler log_info error blackboard predicate_info  in
+                   let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard predicate_info  in
                    let error,log_info,blackboard,init_step = init_fictitious_action log_info error predicate_id  blackboard init_step in
                    let error,log_info,blackboard =
                      List.fold_left
@@ -2648,7 +2585,9 @@ module Preblackboard =
       let error,log_info,blackboard,action_map,test_map =
         List.fold_left
           (fun (error,log_info,blackboard,action_map,test_map) action ->
-             let error,log_info,blackboard,action_list,test_list = predicates_of_action false parameter handler log_info error blackboard init action in
+             let error,log_info,blackboard,action_list,test_list = predicates_of_action
+                 ~with_agent_permutation:false parameter handler log_info error blackboard init action 
+             in
              error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
           (error,log_info,blackboard,PredicateidMap.empty,test_map)
           action_list in
