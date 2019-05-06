@@ -238,7 +238,7 @@ let print_label_of_step ?env f x =  match env with
     | Dummy _  -> ()
 
 let json_dictionnary =
-  "\"step\":[\"Subs_agent\",\"Subs_site\",\"Rule\",\"Pert\",\"Init\",\"Obs\",\"Dummy\"]"
+  "\"step\":[\"Subs_agent\",\"Rule\",\"Pert\",\"Init\",\"Obs\",\"Dummy\",\"Subs_site\"]"
 
 let write_step ob s =
   JsonUtil.write_sequence ob
@@ -248,34 +248,34 @@ let write_step ob s =
          (fun o -> Yojson.Basic.write_int o a);
          (fun o -> Yojson.Basic.write_int o b) ]
      | Subs_site (a,b,c) ->
-       [ (fun o -> Yojson.Basic.write_int o 1);
+       [ (fun o -> Yojson.Basic.write_int o 6);
          (fun o -> Yojson.Basic.write_int o a);
          (fun o -> Yojson.Basic.write_int o b);
          (fun o -> Yojson.Basic.write_int o c)
        ]
      | Rule (x,y,z) ->
-       [ (fun o -> Yojson.Basic.write_int o 2);
+       [ (fun o -> Yojson.Basic.write_int o 1);
          (fun o -> Yojson.Basic.write_int o x);
          (fun o -> Instantiation.write_event Agent.write_json o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
      | Pert (x,y,z) ->
-       [ (fun o -> Yojson.Basic.write_int o 3);
+       [ (fun o -> Yojson.Basic.write_int o 2);
          (fun o -> Yojson.Basic.write_string o x);
          (fun o -> Instantiation.write_event Agent.write_json o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
      | Init a ->
-       [ (fun o -> Yojson.Basic.write_int o 4);
+       [ (fun o -> Yojson.Basic.write_int o 3);
          (fun o ->
             JsonUtil.write_list (Instantiation.write_action Agent.write_json) o a) ]
      | Obs (x,y,z) ->
-       [ (fun o -> Yojson.Basic.write_int o 5);
+       [ (fun o -> Yojson.Basic.write_int o 4);
          (fun o -> Yojson.Basic.write_string o x);
          (fun o ->
             JsonUtil.write_list
               (JsonUtil.write_list (Instantiation.write_test Agent.write_json))
               o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
-     | Dummy _ -> [ (fun o -> Yojson.Basic.write_int o 6) ])
+     | Dummy _ -> [ (fun o -> Yojson.Basic.write_int o 5) ])
 let read_step st b =
   JsonUtil.read_variant Yojson.Basic.read_int
     (fun st b -> function
@@ -283,32 +283,32 @@ let read_step st b =
          let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          let y = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          Subs_agent (x,y)
-       | 1 ->
+       | 6 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          let y = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          let z = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          Subs_site (x,y,z)
-       | 2 ->
+       | 1 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          let y = JsonUtil.read_next_item
              (Instantiation.read_event Agent.read_json) st b in
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Rule (x,y,z)
-       | 3 ->
+       | 2 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_string st b in
          let y = JsonUtil.read_next_item
              (Instantiation.read_event Agent.read_json) st b in
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Pert (x,y,z)
-       | 4 ->
+       | 3 ->
          let l = JsonUtil.read_next_item
              (Yojson.Basic.read_list_rev
                 (Instantiation.read_action Agent.read_json))
              st b in
          Init (List.rev l)
-       | 5 ->
+       | 4 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_string st b in
          let y = JsonUtil.read_next_item
              (Yojson.Basic.read_list
@@ -318,20 +318,20 @@ let read_step st b =
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Obs (x,y,z)
-       | 6 -> Dummy ""
+       | 5 -> Dummy ""
        | _ -> raise (Yojson.json_error "Invalid step") (*st b*))
     st b
 
 let step_to_yojson = function
   | Subs_agent (a,b) -> `List [`Int 0; `Int a; `Int b]
-  | Subs_site (a,b,c) -> `List [`Int 1; `Int a; `Int b; `Int c]
+  | Subs_site (a,b,c) -> `List [`Int 6; `Int a; `Int b; `Int c]
   | Rule (x,y,z) ->
-    `List [`Int 2;
+    `List [`Int 1;
            `Int x;
            Instantiation.event_to_json Agent.to_json y;
            Simulation_info.to_json (fun () -> `Null) z]
   | Pert (x,y,z) ->
-    `List [`Int 3;
+    `List [`Int 2;
            `String x;
            Instantiation.event_to_json Agent.to_json y;
            Simulation_info.to_json (fun () -> `Null) z]
@@ -339,16 +339,16 @@ let step_to_yojson = function
     let rev_actions =
       List.rev_map (Instantiation.action_to_json Agent.to_json) a in
     `List
-      [`Int 4; `List (List.rev rev_actions)]
+      [`Int 3; `List (List.rev rev_actions)]
   | Obs (x,y,z) ->
-    `List [`Int 5;
+    `List [`Int 4;
            `String x;
            `List
              (List.map (fun z ->
                   `List (List.map (Instantiation.test_to_json Agent.to_json)
                            z)) y);
            Simulation_info.to_json (fun () -> `Null) z]
-  | Dummy _ -> `List [ `Int 6 ]
+  | Dummy _ -> `List [ `Int 5 ]
 
 let write_json = JsonUtil.write_list write_step
 let read_json st b = List.rev (Yojson.Basic.read_list_rev read_step st b)
