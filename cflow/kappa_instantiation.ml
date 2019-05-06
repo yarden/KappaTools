@@ -109,21 +109,54 @@ module Cflow_linker =
     let get_id_of_refined_step x =
       get_gen_of_refined_step (fun x -> x.Trace.Simulation_info.story_event) x
 
+    let subst_map_in_concrete_gen f_agent f_site t_agent t_site gen =
+      let gen' = f_site t_site gen  in
+      let gen' = f_agent t_agent gen' in
+      gen'
+
+    let subst_map_in_concrete_event t_agent t_site event =
+      subst_map_in_concrete_gen
+        PI.subst_map_agent_in_concrete_event
+        PI.subst_map_site_in_concrete_event
+        t_agent
+        t_site
+        event
+
+    let subst_map_in_concrete_test t_agent t_site test =
+      subst_map_in_concrete_gen
+        PI.subst_map_agent_in_concrete_test
+        PI.subst_map_site_in_concrete_test
+        t_agent
+        t_site
+        test
+
+    let subst_map_in_concrete_action t_agent t_site action =
+      subst_map_in_concrete_gen
+        PI.subst_map_agent_in_concrete_action
+        PI.subst_map_site_in_concrete_action
+        t_agent
+        t_site
+        action
+
     let build_grid list bool handler =
       let env = handler.H.env in
       let empty_set = [] in
       let grid = Causal.empty_grid () in
-      let grid,_,_,_ =
+      let grid,_,_,_,_ =
         List.fold_left
-          (fun (grid,side_effect,counter,subs) (k,side) ->
+          (fun (grid,side_effect,counter,subs_agent,subs_site) (k,side) ->
              let maybe_side_effect =
                if bool then fun se -> se
                else fun _ -> List.rev_append side_effect side in
-             let translate y = Mods.IntMap.find_default y y subs in
+             let translate_agent y = Mods.IntMap.find_default y y subs_agent in
+             let translate_site ag s =
+               Mods.Int2Map.find_default s (ag,s) subs_site
+             in
              match k with
              | Trace.Rule (id,event,info) ->
                let event' =
-                 PI.subst_map_agent_in_concrete_event translate event in
+                 subst_map_in_concrete_event translate_agent translate_site event
+               in
                let side_effects_dst =
                  maybe_side_effect event'.Instantiation.side_effects_dst in
                Causal.record
@@ -137,10 +170,11 @@ module Cflow_linker =
                        event'.Instantiation.connectivity_tests;
                    },info)
                  counter env grid,
-               empty_set,counter+1,Mods.IntMap.empty
+               empty_set,counter+1,Mods.IntMap.empty,Mods.Int2Map.empty
              | Trace.Pert (id,event,info) ->
                let event' =
-                 PI.subst_map_agent_in_concrete_event translate event in
+                 subst_map_in_concrete_event translate_agent translate_site event
+               in
                let side_effects_dst =
                  maybe_side_effect event'.Instantiation.side_effects_dst in
                Causal.record
@@ -154,34 +188,36 @@ module Cflow_linker =
                        event'.Instantiation.connectivity_tests;
                    },info)
                  counter env grid,
-               empty_set,counter+1,Mods.IntMap.empty
+               empty_set,counter+1,Mods.IntMap.empty, Mods.Int2Map.empty
              | Trace.Obs (id,tests,info) ->
                let tests' =
                  List_util.smart_map
                    (List_util.smart_map
-                      (PI.subst_map_agent_in_concrete_test translate)) tests in
+                      (subst_map_in_concrete_test translate_agent translate_site)) tests in
                Causal.record_obs
                  (id,tests',info) side_effect counter grid,
-               maybe_side_effect empty_set,counter+1,Mods.IntMap.empty
-             | Trace.Subs (a,b) ->
-               grid, side_effect, counter, Mods.IntMap.add a b subs
+               maybe_side_effect empty_set,counter+1,Mods.IntMap.empty,Mods.Int2Map.empty
+             | Trace.Subs_agent (a,b) ->
+               grid, side_effect, counter, Mods.IntMap.add a b subs_agent, subs_site
+             | Trace.Subs_site (a,b,c) ->
+               grid, side_effect, counter, subs_agent, Mods.Int2Map.add (a,b) c subs_site
              | Trace.Init actions ->
                let actions' =
                  List_util.smart_map
-                   (PI.subst_map_agent_in_concrete_action translate) actions in
+                   (subst_map_in_concrete_action translate_agent translate_site) actions in
                Causal.record_init (Trace.creation_of_actions snd actions',actions')
                  counter env grid,
-               side_effect,counter+1,Mods.IntMap.empty
+               side_effect,counter+1,Mods.IntMap.empty,Mods.Int2Map.empty
              | Trace.Dummy _ ->
-               grid, maybe_side_effect empty_set, counter, subs
+               grid, maybe_side_effect empty_set, counter, subs_agent, subs_site
           )
-          (grid,empty_set,1,Mods.IntMap.empty) list
+          (grid,empty_set,1,Mods.IntMap.empty,Mods.Int2Map.empty) list
       in grid
 
     let clean_events =
       List.filter
         (function Trace.Rule _ | Trace.Pert _ | Trace.Obs _ | Trace.Init _ -> true
-                | Trace.Dummy _ | Trace.Subs _ -> false)
+                | Trace.Dummy _ | Trace.Subs_agent _ | Trace.Subs_site _ -> false)
 
     let print_side_effect log =
       List.iter
@@ -218,7 +254,7 @@ module Cflow_linker =
             in
             error,log_info,priority
           end
-        | (Trace.Dummy _ | Trace.Subs _ | Trace.Init _) ->
+        | (Trace.Dummy _ | Trace.Subs_site _ | Trace.Subs_agent _ | Trace.Init _) ->
           error,log_info,priorities.Priority.substitution
 
     let subs_agent_in_event mapping mapping' = function
@@ -250,7 +286,7 @@ module Cflow_linker =
           (List_util.smart_map
              (PI.subst_map_agent_in_concrete_action
                 (fun x -> AgentIdMap.find_default x x mapping')) b)
-      | Trace.Dummy _ | Trace.Subs _ as event -> event
+      | Trace.Dummy _ | Trace.Subs_agent _ | Trace.Subs_site _ as event -> event
 
     let disambiguate event_list =
       let _,_,_,event_list_rev =
@@ -441,7 +477,8 @@ module Cflow_linker =
                 match refined_step
                 with
                 | Trace.Init init -> convert_init remanent step_list init
-                | Trace.Subs _ | Trace.Obs _ | Trace.Dummy _
+                | Trace.Subs_agent _ | Trace.Subs_site _
+                | Trace.Obs _ | Trace.Dummy _
                 | Trace.Rule _ | Trace.Pert _ ->
                   (refined_step::step_list,remanent))
              ([],remanent)
@@ -478,14 +515,15 @@ module Cflow_linker =
                       | None -> list)
                    set
                    (refined_step::step_list)),remanent)
-             | (Trace.Subs _ | Trace.Obs _ | Trace.Dummy _) ->
+             | (Trace.Subs_agent _ | Trace.Subs_site _
+               | Trace.Obs _ | Trace.Dummy _) ->
                (refined_step::step_list,remanent))
           ([],remanent)
           refined_step_list in
       List.rev a
 
     let agent_id_in_obs _parameter _handler info error = function
-      | (Trace.Subs _ | Trace.Rule _ | Trace.Pert _
+      | (Trace.Subs_agent _ | Trace.Subs_site _ | Trace.Rule _ | Trace.Pert _
         | Trace.Init _ | Trace.Dummy _) -> error,info,AgentIdSet.empty
       | Trace.Obs (_,tests,_) ->
         error, info,

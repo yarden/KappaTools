@@ -693,8 +693,10 @@ module Preblackboard =
       if Trace.step_is_obs x then Observable
       else if Trace.step_is_init x then Init
       else if Trace.step_is_rule x then Rule
-      else if Trace.step_is_subs x then Subs
-      else Dummy
+      else if Trace.step_is_subs_agent x then Subs
+      else if Trace.step_is_subs_site x then Subs
+      else
+        Dummy
 
     (** initialisation*)
     let init _parameter _handler log_info error  =
@@ -1812,7 +1814,7 @@ module Preblackboard =
              in
              List.fold_left
                (fun (error,log_info,blackboard,init_step,nlist) mixture_ag_id ->
-                  let step = Trace.subs_step rule_ag_id mixture_ag_id in
+                  let step = Trace.subs_agent_step rule_ag_id mixture_ag_id in
                   let test_list =
                     List_util.smart_map
                       (Instantiation.subst_agent_in_concrete_test rule_ag_id mixture_ag_id)

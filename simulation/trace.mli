@@ -42,7 +42,8 @@ val print_event_kind_dot_annot :
   Model.t -> Format.formatter -> event_kind -> unit
 
 type step =
-  | Subs of int * int
+  | Subs_agent of int * int
+  | Subs_site of int * int * int
   | Rule of
       int *
       Instantiation.concrete Instantiation.event *
@@ -61,11 +62,13 @@ type step =
 type t = step list
 
 val dummy_step : string -> step
-val subs_step : int -> int -> step
+val subs_agent_step : int -> int -> step
+val subs_site_step : int -> int -> int -> step
 
 val step_is_obs : step -> bool
 val step_is_init : step -> bool
-val step_is_subs : step -> bool
+val step_is_subs_agent : step -> bool
+val step_is_subs_site : step -> bool 
 val step_is_rule : step -> bool
 val step_is_pert : step -> bool
 val has_creation_of_step: step -> bool

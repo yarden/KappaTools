@@ -195,12 +195,12 @@ let test_pass_on graph = function
     | None -> false
     | Some ((_, dst_ag_ty), dst_s) -> dst_ag_ty = ag_ty && dst_s = s'
     end
-    
+
 let tests_pass_on graph tests =
   List.for_all (test_pass_on graph) (List.concat tests)
 
 let is_step_triggerable_on_edges graph = function
-  | Trace.Subs _ | Trace.Init _
+  | Trace.Subs_agent _ | Trace.Subs_site _ | Trace.Init _
   | Trace.Pert _ | Trace.Dummy _ -> true
   | Trace.Rule (_r, event, _info) ->
     tests_pass_on graph event.Instantiation.tests
@@ -209,7 +209,7 @@ let is_step_triggerable_on_edges graph = function
 let is_step_triggerable state = is_step_triggerable_on_edges state.graph
 
 let do_step sigs state = function
-  | Trace.Subs _ -> state,{ unary_distances = None }
+  | Trace.Subs_agent _ | Trace.Subs_site _ -> state,{ unary_distances = None }
   | Trace.Rule (kind,event,info) ->
     let unary_distances =
       store_distances kind state.graph event.Instantiation.tests in

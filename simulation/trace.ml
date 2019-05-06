@@ -109,7 +109,8 @@ let print_event_kind_dot_annot env f = function
       s "invhouse" "filled" "green"
 
 type step =
-  | Subs of int * int
+  | Subs_agent of int * int
+  | Subs_site of int * int * int
   | Rule of
       int *
       Instantiation.concrete Instantiation.event *
@@ -127,10 +128,13 @@ type step =
 
 type t = step list
 
-let subs_step a b = Subs (a,b)
+let subs_agent_step a b = Subs_agent (a,b)
+let subs_site_step a b c = Subs_site (a,b,c)
+
 let dummy_step x = Dummy x
 
-let print_subs _f (_a,_b)  = ()
+let print_subs_agent _f (_a,_b)  = ()
+let print_subs_site _f (_a,_b,_c) = ()
 
 let print_site ?env f ((ag_id,ag),s) =
   Format.fprintf
@@ -193,7 +197,8 @@ let print_obs ~compact ?env f (ev_kind,tests,_) =
       tests
 
 let print_step ?(compact=false) ?env f = function
-  | Subs (a,b) -> print_subs f (a,b)
+  | Subs_agent (a,b) -> print_subs_agent f (a,b)
+  | Subs_site (a,b,c) -> print_subs_site f (a,b,c)
   | Rule (x,y,_z) -> print_event ~compact ?env f (RULE x,y)
   | Pert (x,y,_z) -> print_event ~compact ?env f (PERT x,y)
   | Init a -> print_init ~compact ?env f a
@@ -211,88 +216,99 @@ let get_types_from_init a =
 
 let print_label_of_step ?env f x =  match env with
   | None ->
-     (match x with
-      | Subs _ -> ()
-      | Rule (x,_,_) -> Format.fprintf f "%i" x
-      | Pert (x,_,_) -> Format.fprintf f "%s" x
-      | Init a ->
-         let l = get_types_from_init a in
-         Format.fprintf f "INIT(%a)" (Pp.list Pp.comma Format.pp_print_int) l
-      | Obs (x,_,_) -> Format.fprintf f "%s" x
-      | Dummy _  -> ())
+    (match x with
+     | Subs_agent _ | Subs_site _ -> ()
+     | Rule (x,_,_) -> Format.fprintf f "%i" x
+     | Pert (x,_,_) -> Format.fprintf f "%s" x
+     | Init a ->
+       let l = get_types_from_init a in
+       Format.fprintf f "INIT(%a)" (Pp.list Pp.comma Format.pp_print_int) l
+     | Obs (x,_,_) -> Format.fprintf f "%s" x
+     | Dummy _  -> ())
   | Some env -> match x with
-      | Subs _ -> ()
-      | Rule (x,_,_) -> Model.print_rule ~noCounters:false ~env f x
-      | Pert (x,_,_) -> Format.pp_print_string f x
-      | Init a ->
-         let l = get_types_from_init a in
-         Format.fprintf
-           f "Intro @[<h>%a@]"
-           (Pp.list Pp.comma (Model.print_agent ~env)) l
-      | Obs (x,_,_) -> Format.pp_print_string f x
-      | Dummy _  -> ()
+    | Subs_agent _ | Subs_site _ -> ()
+    | Rule (x,_,_) -> Model.print_rule ~noCounters:false ~env f x
+    | Pert (x,_,_) -> Format.pp_print_string f x
+    | Init a ->
+      let l = get_types_from_init a in
+      Format.fprintf
+        f "Intro @[<h>%a@]"
+        (Pp.list Pp.comma (Model.print_agent ~env)) l
+    | Obs (x,_,_) -> Format.pp_print_string f x
+    | Dummy _  -> ()
 
 let json_dictionnary =
-  "\"step\":[\"Subs\",\"Rule\",\"Pert\",\"Init\",\"Obs\",\"Dummy\"]"
+  "\"step\":[\"Subs_agent\",\"Subs_site\",\"Rule\",\"Pert\",\"Init\",\"Obs\",\"Dummy\"]"
 
 let write_step ob s =
   JsonUtil.write_sequence ob
     (match s with
-     | Subs (a,b) ->
+     | Subs_agent (a,b) ->
        [ (fun o -> Yojson.Basic.write_int o 0);
          (fun o -> Yojson.Basic.write_int o a);
          (fun o -> Yojson.Basic.write_int o b) ]
-     | Rule (x,y,z) ->
+     | Subs_site (a,b,c) ->
        [ (fun o -> Yojson.Basic.write_int o 1);
+         (fun o -> Yojson.Basic.write_int o a);
+         (fun o -> Yojson.Basic.write_int o b);
+         (fun o -> Yojson.Basic.write_int o c)
+       ]
+     | Rule (x,y,z) ->
+       [ (fun o -> Yojson.Basic.write_int o 2);
          (fun o -> Yojson.Basic.write_int o x);
          (fun o -> Instantiation.write_event Agent.write_json o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
      | Pert (x,y,z) ->
-       [ (fun o -> Yojson.Basic.write_int o 2);
+       [ (fun o -> Yojson.Basic.write_int o 3);
          (fun o -> Yojson.Basic.write_string o x);
          (fun o -> Instantiation.write_event Agent.write_json o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
      | Init a ->
-       [ (fun o -> Yojson.Basic.write_int o 3);
+       [ (fun o -> Yojson.Basic.write_int o 4);
          (fun o ->
             JsonUtil.write_list (Instantiation.write_action Agent.write_json) o a) ]
      | Obs (x,y,z) ->
-       [ (fun o -> Yojson.Basic.write_int o 4);
+       [ (fun o -> Yojson.Basic.write_int o 5);
          (fun o -> Yojson.Basic.write_string o x);
          (fun o ->
             JsonUtil.write_list
               (JsonUtil.write_list (Instantiation.write_test Agent.write_json))
               o y);
          (fun o -> Simulation_info.write_json Yojson.Basic.write_null o z) ]
-     | Dummy _ -> [ (fun o -> Yojson.Basic.write_int o 5) ])
+     | Dummy _ -> [ (fun o -> Yojson.Basic.write_int o 6) ])
 let read_step st b =
   JsonUtil.read_variant Yojson.Basic.read_int
     (fun st b -> function
        | 0 ->
-         let a = JsonUtil.read_next_item Yojson.Basic.read_int st b in
-         let b = JsonUtil.read_next_item Yojson.Basic.read_int st b in
-         Subs (a,b)
+         let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
+         let y = JsonUtil.read_next_item Yojson.Basic.read_int st b in
+         Subs_agent (x,y)
        | 1 ->
+         let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
+         let y = JsonUtil.read_next_item Yojson.Basic.read_int st b in
+         let z = JsonUtil.read_next_item Yojson.Basic.read_int st b in
+         Subs_site (x,y,z)
+       | 2 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_int st b in
          let y = JsonUtil.read_next_item
              (Instantiation.read_event Agent.read_json) st b in
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Rule (x,y,z)
-       | 2 ->
+       | 3 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_string st b in
          let y = JsonUtil.read_next_item
              (Instantiation.read_event Agent.read_json) st b in
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Pert (x,y,z)
-       | 3 ->
+       | 4 ->
          let l = JsonUtil.read_next_item
              (Yojson.Basic.read_list_rev
                 (Instantiation.read_action Agent.read_json))
              st b in
          Init (List.rev l)
-       | 4 ->
+       | 5 ->
          let x = JsonUtil.read_next_item Yojson.Basic.read_string st b in
          let y = JsonUtil.read_next_item
              (Yojson.Basic.read_list
@@ -302,19 +318,20 @@ let read_step st b =
          let z = JsonUtil.read_next_item
              (Simulation_info.read_json Yojson.Basic.read_null) st b in
          Obs (x,y,z)
-       | 5 -> Dummy ""
+       | 6 -> Dummy ""
        | _ -> raise (Yojson.json_error "Invalid step") (*st b*))
     st b
 
 let step_to_yojson = function
-  | Subs (a,b) -> `List [`Int 0; `Int a; `Int b]
+  | Subs_agent (a,b) -> `List [`Int 0; `Int a; `Int b]
+  | Subs_site (a,b,c) -> `List [`Int 1; `Int a; `Int b; `Int c]
   | Rule (x,y,z) ->
-    `List [`Int 1;
+    `List [`Int 2;
            `Int x;
            Instantiation.event_to_json Agent.to_json y;
            Simulation_info.to_json (fun () -> `Null) z]
   | Pert (x,y,z) ->
-    `List [`Int 2;
+    `List [`Int 3;
            `String x;
            Instantiation.event_to_json Agent.to_json y;
            Simulation_info.to_json (fun () -> `Null) z]
@@ -322,16 +339,16 @@ let step_to_yojson = function
     let rev_actions =
       List.rev_map (Instantiation.action_to_json Agent.to_json) a in
     `List
-      [`Int 3; `List (List.rev rev_actions)]
+      [`Int 4; `List (List.rev rev_actions)]
   | Obs (x,y,z) ->
-    `List [`Int 4;
+    `List [`Int 5;
            `String x;
            `List
              (List.map (fun z ->
                   `List (List.map (Instantiation.test_to_json Agent.to_json)
                            z)) y);
            Simulation_info.to_json (fun () -> `Null) z]
-  | Dummy _ -> `List [ `Int 5 ]
+  | Dummy _ -> `List [ `Int 6 ]
 
 let write_json = JsonUtil.write_list write_step
 let read_json st b = List.rev (Yojson.Basic.read_list_rev read_step st b)
@@ -346,24 +363,27 @@ let step_of_string s =
 
 let step_is_obs = function
   | Obs _ -> true
-  | Rule _ | Pert _ | Subs _ | Dummy _ | Init _ -> false
+  | Rule _ | Pert _ | Subs_agent _ | Subs_site _ | Dummy _ | Init _ -> false
 let step_is_init = function
   | Init _ -> true
-  | Rule _ | Pert _ | Subs _ | Dummy _ | Obs _ -> false
-let step_is_subs = function
-  | Subs _ -> true
-  | Rule _ | Pert _ | Init _ | Dummy _ | Obs _ -> false
+  | Rule _ | Pert _ | Subs_agent _ | Subs_site _ | Dummy _ | Obs _ -> false
+let step_is_subs_agent = function
+  | Subs_agent _ -> true
+  | Subs_site _ | Rule _ | Pert _ | Init _ | Dummy _ | Obs _ -> false
+let step_is_subs_site = function
+    | Subs_site _ -> true
+    | Subs_agent _ | Rule _ | Pert _ | Init _ | Dummy _ | Obs _ -> false
 let step_is_rule = function
   | Rule _ -> true
-  | Pert _ | Init _ | Subs _ | Dummy _ | Obs _ -> false
+  | Pert _ | Init _ | Subs_agent _ | Subs_site _ | Dummy _ | Obs _ -> false
 let step_is_pert = function
   | Pert _ -> true
-  | Rule _ | Init _ | Subs _ | Dummy _ | Obs _ -> false
+  | Rule _ | Init _ | Subs_agent _ | Subs_site _ | Dummy _ | Obs _ -> false
 
 let simulation_info_of_step = function
   | Obs (_,_,info) | Rule (_,_,info) | Pert (_,_,info) -> Some info
   | Init _ -> Some (Simulation_info.dummy ())
-  | Subs _ | Dummy _ -> None
+  | Subs_agent _ | Subs_site _ | Dummy _ -> None
 
 let creation_of_actions op actions =
   List.fold_left
@@ -376,11 +396,11 @@ let creation_of_step = function
   | (Rule (_,{ Instantiation.actions = ac; _ },_)
     | Pert (_,{ Instantiation.actions = ac; _ },_)
     | Init ac) -> creation_of_actions fst ac
-  | Obs _ | Dummy _ | Subs _ -> []
+  | Obs _ | Dummy _ | Subs_agent _ | Subs_site _ -> []
 let has_creation_of_step x = creation_of_step x <> []
 
 let tests_of_step = function
-  | Subs _ -> []
+  | Subs_agent _ | Subs_site _ -> []
   | Rule (_,e,_) | Pert (_,e,_) ->
     List.fold_right
       List.append e.Instantiation.tests e.Instantiation.connectivity_tests
@@ -389,7 +409,7 @@ let tests_of_step = function
   | Dummy _ -> []
 
 let actions_of_step = function
-  | Subs _ -> ([],[])
+  | Subs_agent _ | Subs_site _ -> ([],[])
   | Rule (_,e,_) | Pert (_,e,_) ->
     (e.Instantiation.actions,e.Instantiation.side_effects_src)
   | Init y -> (y,[])
@@ -398,7 +418,7 @@ let actions_of_step = function
 
 let side_effects_of_step = function
   | Rule ((_,e,_)) | Pert ((_,e,_)) -> e.Instantiation.side_effects_dst
-  | Subs _ | Obs _ | Dummy _ | Init _ -> []
+  | Subs_agent _ | Subs_site _ | Obs _ | Dummy _ | Init _ -> []
 
 let init_trace_file ~uuid env desc =
   let () = output_string desc "{\n\"uuid\" : \"" in

@@ -669,7 +669,7 @@ let log_event id quarks event_kind steps =
                             (Locality.dummy_annot
                                "init event has actions not allowed"))) actions
           | Trace.Rule _ | Trace.Pert _ | Trace.Obs _
-          | Trace.Subs _ | Trace.Dummy _ -> false) steps in
+          | Trace.Subs_agent _ | Trace.Subs_site _ | Trace.Dummy _ -> false) steps in
      `List [`Int id; Trace.step_to_yojson stp ]
   | EVENT (Trace.RULE rid) ->
      let stp =
@@ -681,7 +681,7 @@ let log_event id quarks event_kind steps =
                 e.Instantiation.actions
                 (e.Instantiation.connectivity_tests::e.Instantiation.tests)
                 quarks))
-          | Trace.Pert _ | Trace.Obs _ | Trace.Subs _
+          | Trace.Pert _ | Trace.Obs _ | Trace.Subs_agent _ | Trace.Subs_site _
           | Trace.Dummy _ | Trace.Init _ -> false) steps in
      `List [`Int id; Trace.step_to_yojson stp]
   | OBS _ ->
@@ -689,7 +689,8 @@ let log_event id quarks event_kind steps =
        List.find
          (function
           | Trace.Obs _ -> true
-          | Trace.Subs _ | Trace.Dummy _ | Trace.Init _
+          | Trace.Subs_agent _ | Trace.Subs_site _
+          | Trace.Dummy _ | Trace.Init _
           | Trace.Rule _ | Trace.Pert _ -> false) steps in
      `List [`Int id; Trace.step_to_yojson stp]
   | EVENT (Trace.PERT pert) ->
@@ -702,7 +703,8 @@ let log_event id quarks event_kind steps =
                 e.Instantiation.actions
                 (e.Instantiation.connectivity_tests::e.Instantiation.tests)
                 quarks))
-          | Trace.Rule _ | Trace.Obs _ | Trace.Subs _
+          | Trace.Rule _ | Trace.Obs _
+          | Trace.Subs_agent _ | Trace.Subs_site _ 
           | Trace.Dummy _ | Trace.Init _ -> false) steps in
      `List [`Int id; Trace.step_to_yojson stp]
 

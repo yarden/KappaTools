@@ -112,6 +112,27 @@ val subst_map2_agent_in_concrete_event:
 val subst_agent_in_concrete_event:
   int -> int -> concrete event -> concrete event
 
+val subst_map_site_in_concrete_test :
+  (int -> int -> int) -> concrete test -> concrete test
+val subst_site_in_concrete_test :
+  int -> int -> int -> concrete test -> concrete test
+val subst_map_site_in_concrete_action :
+  (int -> int -> int) -> concrete action -> concrete action
+val subst_site_in_concrete_action :
+  int -> int -> int -> concrete action -> concrete action
+val subst_map_site_in_concrete_side_effect:
+  (int -> int -> int) -> (concrete site * concrete binding_state) ->
+  (concrete site * concrete binding_state)
+val subst_site_in_concrete_side_effect:
+  int -> int -> int -> (concrete site * concrete binding_state) ->
+  (concrete site * concrete binding_state)
+val subst_map_site_in_concrete_event:
+  (int -> int -> int) -> concrete event -> concrete event
+val subst_map2_site_in_concrete_event:
+  (int -> int -> int) -> (int -> int -> int) -> concrete event -> concrete event
+val subst_site_in_concrete_event:
+  int -> int -> int -> concrete event -> concrete event
+
 val print_concrete_test :
   ?sigs:Signature.s -> Format.formatter -> concrete test -> unit
 val print_concrete_action :

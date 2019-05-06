@@ -218,88 +218,169 @@ let matching_abstract_concrete ~debugMode ae ce =
       true abstract_ids in
   if injective then Some matching else None
 
-let subst_map_concrete_agent f (id,na as agent) =
+let subst_map_agent_in_concrete_agent f (id,na as agent) =
   try if f id == id then agent else (f id,na)
   with Not_found -> agent
 
-let subst_map_site f (ag,s as site) =
+let subst_map_site_in_concrete_site f (id,_) s  =
+  try if f id s == s then s else f id s
+  with Not_found -> s
+
+let subst_map_agent_in_site f (ag,s as site) =
   let ag' = f ag in
   if ag==ag' then site else (ag',s)
 
-let subst_map_agent_in_test f = function
+let subst_map_site_in_site f (ag,s as site) =
+  let s' = f ag s in
+  if s==s' then site else (ag,s')
+
+let subst_map_gen_in_test f_agent f_site = function
   | Is_Here agent as x ->
-    let agent' = f agent in
+    let agent' = f_agent agent in
     if agent == agent' then x else Is_Here agent'
   | Has_Internal (site,internal_state) as x ->
-    let site' = subst_map_site f site in
+    let site' = f_site site in
     if site == site' then x else Has_Internal (site',internal_state)
   | Is_Free site as x ->
-    let site' = subst_map_site f site in
+    let site' = f_site site in
     if site == site' then x else Is_Free site'
   | Is_Bound site as x ->
-    let site' = subst_map_site f site in
+    let site' = f_site site in
     if site == site' then x else Is_Bound site'
   | Has_Binding_type (site,binding_type) as x ->
-    let site' = subst_map_site f site in
+    let site' = f_site site in
     if site == site' then x else Has_Binding_type (site',binding_type)
   | Is_Bound_to (site1,site2) as x ->
-    let site1' = subst_map_site f site1 in
-    let site2' = subst_map_site f site2 in
+    let site1' = f_site site1 in
+    let site2' = f_site site2 in
     if site1 == site1' && site2 == site2' then x
     else Is_Bound_to (site1',site2')
+
+let subst_map_agent_in_test f test =
+  subst_map_gen_in_test
+    f
+    (subst_map_agent_in_site f)
+    test
+
+let subst_map_site_in_test f test =
+  subst_map_gen_in_test
+    (fun x -> x)
+    (subst_map_site_in_site f)
+    test
+
 let subst_map_agent_in_concrete_test f x =
-  subst_map_agent_in_test (subst_map_concrete_agent f) x
+  subst_map_agent_in_test (subst_map_agent_in_concrete_agent f) x
+
+let subst_map_site_in_concrete_test f x =
+  subst_map_site_in_test (subst_map_site_in_concrete_site f) x
+
 let subst_agent_in_concrete_test id id' x =
   subst_map_agent_in_concrete_test
     (fun j -> if j = id then id' else j) x
+
+let subst_site_in_concrete_test id s s' x =
+  subst_map_site_in_concrete_test
+    (fun id' j -> if id=id' && j = s then s' else j)
+    x
+
 let rename_abstract_test ~debugMode id inj x =
   subst_map_agent_in_test (Matching.Agent.rename ~debugMode id inj) x
 
-let subst_map2_agent_in_action f f' = function
-  | Create (agent,list) as x ->
-    let agent' = f' agent in
-    if agent == agent' then x else Create(agent',list)
-  | Mod_internal (site,i) as x ->
-    let site' = subst_map_site f' site in
-    if site == site' then x else Mod_internal(site',i)
-  | Bind (s1,s2) as x ->
-    let s1' = subst_map_site f' s1 in
-    let s2' = subst_map_site f' s2 in
-    if s1==s1' && s2==s2' then x else Bind(s1',s2')
-  | Bind_to (s1,s2) as x ->
-    let s1' = subst_map_site f' s1 in
-    let s2' = subst_map_site f' s2 in
-    if s1==s1' && s2==s2' then x else Bind_to(s1',s2')
-  | Free site as x ->
-    let site' = subst_map_site f' site in
-    if site == site' then x else Free site'
-  | Remove agent as x ->
-    let agent' = f agent in
-    if agent==agent' then x else Remove agent'
+let subst_map2_gen_in_action f_create f_remove f_site = function
+| Create _ as x -> f_create x
+| Mod_internal (site,i) as x ->
+  let site' = f_site site in
+  if site == site' then x else Mod_internal(site',i)
+| Bind (s1,s2) as x ->
+  let s1' = f_site s1 in
+  let s2' = f_site s2 in
+  if s1==s1' && s2==s2' then x else Bind(s1',s2')
+| Bind_to (s1,s2) as x ->
+  let s1' = f_site s1 in
+  let s2' = f_site s2 in
+  if s1==s1' && s2==s2' then x else Bind_to(s1',s2')
+| Free site as x ->
+  let site' = f_site site in
+  if site == site' then x else Free site'
+| Remove _ as x -> f_remove x
+
+
+let subst_map2_agent_in_action f f' x =
+  subst_map2_gen_in_action
+    (function
+      | Create (agent,list) as x ->
+        let agent' = f' agent in
+        if agent == agent' then x else Create(agent',list)
+      | Remove _ | Bind _ | Free _ | Mod_internal _ | Bind_to _ -> assert false)
+    (function
+      | Remove agent as x ->
+        let agent' = f agent in
+        if agent==agent' then x else Remove agent'
+      | Create _ | Bind _ | Free _ | Mod_internal _ | Bind_to _  -> assert false)
+    (fun site -> subst_map_agent_in_site f' site)
+    x
+
+    let subst_map2_site_in_action _f f' x =
+      subst_map2_gen_in_action
+        (fun x -> x)
+        (fun x -> x)
+        (fun site -> subst_map_site_in_site f' site)
+        x
 
 let subst_map_agent_in_action f x = subst_map2_agent_in_action f f x
+let subst_map_site_in_action f x = subst_map2_site_in_action f f x
 
 let subst_map_agent_in_concrete_action f x =
-  subst_map_agent_in_action (subst_map_concrete_agent f) x
+  subst_map_agent_in_action (subst_map_agent_in_concrete_agent f) x
+
+let subst_map_site_in_concrete_action f x =
+  subst_map_site_in_action (subst_map_site_in_concrete_site f) x
+
 let subst_agent_in_concrete_action id id' x =
   subst_map_agent_in_concrete_action
     (fun j -> if j = id then id' else j) x
+
+let subst_site_in_concrete_action id s s' x =
+  subst_map_site_in_concrete_action
+    (fun id' j -> if id' = id && j = s then s' else j)
+    x
+
 let rename_abstract_action ~debugMode id inj x =
   subst_map_agent_in_action (Matching.Agent.rename ~debugMode id inj) x
 
-let subst_map_binding_state f = function
+let subst_map_agent_binding_state f = function
   | (ANY | FREE | BOUND | BOUND_TYPE _ as x) -> x
   | BOUND_to (ag,s) as x ->
     let ag' = f ag in if ag == ag' then x else BOUND_to (ag',s)
+
+let subst_map_site_binding_state f = function
+  | (ANY | FREE | BOUND | BOUND_TYPE _ as x) -> x
+  | BOUND_to (ag,s) as x ->
+    let s' = f ag s in if s == s' then x else BOUND_to (ag,s')
+
 let subst_map_agent_in_side_effect f (site,bstate as x) =
-  let site' = subst_map_site f site in
-  let bstate' = subst_map_binding_state f bstate in
+  let site' = subst_map_agent_in_site f site in
+  let bstate' = subst_map_agent_binding_state f bstate in
   if site == site' && bstate == bstate' then x else (site',bstate')
+
+let subst_map_site_in_side_effect f (site,bstate as x) =
+  let site' = subst_map_site_in_site f site in
+  let bstate' = subst_map_site_binding_state f bstate in
+  if site == site' && bstate == bstate' then x else (site',bstate')
+
 let subst_map_agent_in_concrete_side_effect f x =
-  subst_map_agent_in_side_effect (subst_map_concrete_agent f) x
+  subst_map_agent_in_side_effect (subst_map_agent_in_concrete_agent f) x
+
+let subst_map_site_in_concrete_side_effect f x =
+    subst_map_site_in_side_effect (subst_map_site_in_concrete_site f) x
+
 let subst_agent_in_concrete_side_effect id id' x =
   subst_map_agent_in_concrete_side_effect
     (fun j -> if j = id then id' else j) x
+let subst_site_in_concrete_side_effect id s s' x =
+  subst_map_site_in_concrete_side_effect
+    (fun id' j -> if id=id' && j=s then s' else j)
+    x
 let rename_abstract_side_effect ~debugMode id inj x =
   subst_map_agent_in_side_effect (Matching.Agent.rename ~debugMode id inj) x
 
@@ -311,9 +392,22 @@ let subst_map_agent_in_event f e =
     side_effects_src =
       List_util.smart_map (subst_map_agent_in_side_effect f) e.side_effects_src;
     side_effects_dst =
-      List_util.smart_map (subst_map_site f) e.side_effects_dst;
+      List_util.smart_map (subst_map_agent_in_site f) e.side_effects_dst;
     connectivity_tests =
       List_util.smart_map (subst_map_agent_in_test f) e.connectivity_tests;
+  }
+
+let subst_map_site_in_event f e =
+  {
+    tests = List_util.smart_map
+        (List_util.smart_map (subst_map_site_in_test f)) e.tests;
+    actions = List_util.smart_map (subst_map_site_in_action f) e.actions;
+    side_effects_src =
+      List_util.smart_map (subst_map_site_in_side_effect f) e.side_effects_src;
+    side_effects_dst =
+      List_util.smart_map (subst_map_site_in_site f) e.side_effects_dst;
+    connectivity_tests =
+      List_util.smart_map (subst_map_site_in_test f) e.connectivity_tests;
   }
 
 let subst_map2_agent_in_event f f' e =
@@ -324,22 +418,47 @@ let subst_map2_agent_in_event f f' e =
     side_effects_src =
       List_util.smart_map (subst_map_agent_in_side_effect f) e.side_effects_src;
     side_effects_dst =
-      List_util.smart_map (subst_map_site f) e.side_effects_dst;
+      List_util.smart_map (subst_map_agent_in_site f) e.side_effects_dst;
     connectivity_tests =
       List_util.smart_map (subst_map_agent_in_test f) e.connectivity_tests;
   }
 
+let subst_map2_site_in_event f f' e =
+  {
+    tests = List_util.smart_map
+        (List_util.smart_map (subst_map_site_in_test f)) e.tests;
+    actions = List_util.smart_map (subst_map2_site_in_action f f') e.actions;
+    side_effects_src =
+      List_util.smart_map (subst_map_site_in_side_effect f) e.side_effects_src;
+    side_effects_dst =
+      List_util.smart_map (subst_map_site_in_site f) e.side_effects_dst;
+    connectivity_tests =
+      List_util.smart_map (subst_map_site_in_test f) e.connectivity_tests;
+  }
+
 let subst_map_agent_in_concrete_event f x =
-  subst_map_agent_in_event (subst_map_concrete_agent f) x
+  subst_map_agent_in_event (subst_map_agent_in_concrete_agent f) x
 let subst_map2_agent_in_concrete_event f f' x =
   subst_map2_agent_in_event
-    (subst_map_concrete_agent f) (subst_map_concrete_agent f') x
+    (subst_map_agent_in_concrete_agent f) (subst_map_agent_in_concrete_agent f') x
 
 let subst_agent_in_concrete_event id id' x =
   subst_map_agent_in_concrete_event
     (fun j -> if j = id then id' else j) x
 let rename_abstract_event ~debugMode id inj x =
   subst_map_agent_in_event (Matching.Agent.rename ~debugMode id inj) x
+
+
+let subst_map_site_in_concrete_event f x =
+    subst_map_site_in_event (subst_map_site_in_concrete_site f) x
+  let subst_map2_site_in_concrete_event f f' x =
+    subst_map2_site_in_event
+      (subst_map_site_in_concrete_site f) (subst_map_site_in_concrete_site f') x
+
+let subst_site_in_concrete_event id s s' x =
+    subst_map_site_in_concrete_event
+      (fun id' j -> if id = id' && j = s then s' else j) x
+
 
 let print_concrete_agent_site ?sigs f (agent,id) =
   Format.fprintf f "%a.%a" (Agent.print ?sigs ~with_id:true) agent
