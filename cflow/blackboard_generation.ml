@@ -545,32 +545,8 @@ module Preblackboard =
       let _ = A.set blackboard.history_of_agent_ids_of_type agent_name new_list in
       error,blackboard
 
-    let free_agent parameter handler log_info error blackboard agent_id =
-      let error,log_info,blackboard,predicate_id =
-        get_predicate_id parameter handler log_info error blackboard (Here agent_id)  in
-      let error,log_info,set =
-        try
-          error,log_info,A.get blackboard.predicate_id_list_related_to_predicate_id predicate_id
-        with
-        | _ ->
-          warn
-            parameter log_info error __POS__
-            ~message:"free_agent, Try to free an unexisting agent"
-            (Failure "free_agent")  PredicateidSet.empty
-      in
-      let map =
-        PredicateidSet.fold
-          (fun predicate_id map ->
-             let predicate = A.get blackboard.pre_column_map_inv predicate_id in
-             PredicateMap.remove predicate map
-          )
-          set
-          blackboard.pre_column_map
-      in
-      error,log_info,{blackboard with pre_column_map = map}
-
     let predicates_of_action
-        ~with_agent_permutation parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard action =
+        parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard action =
       match action with
       | Instantiation.Create (ag,interface) ->
         let ag_id = CI.Po.K.agent_id_of_agent ag in
@@ -628,13 +604,6 @@ module Preblackboard =
       | Instantiation.Remove ag ->
         let ag_id = CI.Po.K.agent_id_of_agent ag in
         let error,log_info,blackboard,predicate_id = get_predicate_id parameter handler log_info error blackboard (Here ag_id) in
-        let error, log_info, blackboard =
-          if with_agent_permutation
-          then error, log_info, blackboard
-          else
-            (* If traces are not seen up to permutation of agents, there is no way to reuse this agent later on *)
-            free_agent parameter handler log_info error blackboard ag_id
-        in
         let set =
           A.get
             blackboard.predicate_id_list_related_to_predicate_id
@@ -695,8 +664,7 @@ module Preblackboard =
       else if Trace.step_is_rule x then Rule
       else if Trace.step_is_subs_agent x then Subs
       else if Trace.step_is_subs_site x then Subs
-      else
-        Dummy
+      else Dummy
 
     (** initialisation*)
     let init _parameter _handler log_info error  =
@@ -1724,7 +1692,7 @@ module Preblackboard =
               List.fold_left
                 (fun (error,log_info,blackboard,action_map,test_map) action ->
                    let error,log_info,blackboard,action_list,test_list = predicates_of_action
-                       ~with_agent_permutation:true parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard action in
+                       parameter handler (log_info:StoryProfiling.StoryStats.log_info) error blackboard action in
                    error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
                 (error,log_info,blackboard,PredicateidMap.empty,test_map)
                 action_list in
@@ -1928,7 +1896,7 @@ module Preblackboard =
                     List.fold_left
                       (fun (error,log_info,blackboard,action_map,test_map) action ->
                          let error,log_info,blackboard,action_list,test_list = predicates_of_action
-                             ~with_agent_permutation:true parameter handler log_info error blackboard action
+                             parameter handler log_info error blackboard action
                          in
                          error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
                       (error,log_info,blackboard,PredicateidMap.empty,test_map)
@@ -2146,7 +2114,7 @@ module Preblackboard =
                                (fun (error,log_info,blackboard,action_map,test_map) action ->
                                   let error,log_info,blackboard,action_list,test_list =
                                     predicates_of_action
-                                      ~with_agent_permutation:true parameter handler log_info error blackboard action
+                                      parameter handler log_info error blackboard action
                                   in
                                   let action_list =
                                     List.rev_map
@@ -2357,7 +2325,7 @@ module Preblackboard =
         List.fold_left
           (fun (error,log_info,blackboard,action_map,test_map) action ->
              let error,log_info,blackboard,action_list,test_list = predicates_of_action
-                 ~with_agent_permutation:true parameter handler log_info error blackboard action
+                 parameter handler log_info error blackboard action
              in
              error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
           (error,log_info,blackboard,PredicateidMap.empty,test_map)
@@ -2575,7 +2543,7 @@ module Preblackboard =
         List.fold_left
           (fun (error,log_info,blackboard,action_map,test_map) action ->
              let error,log_info,blackboard,action_list,test_list = predicates_of_action
-                 ~with_agent_permutation:false parameter handler log_info error blackboard action
+                 parameter handler log_info error blackboard action
              in
              error,log_info,blackboard,build_map action_list action_map,build_map test_list test_map)
           (error,log_info,blackboard,PredicateidMap.empty,test_map)
