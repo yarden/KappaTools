@@ -133,6 +133,8 @@ val subst_map2_site_in_concrete_event:
 val subst_site_in_concrete_event:
   int -> int -> int -> concrete event -> concrete event
 
+val print_concrete_agent_site :
+  ?sigs:Signature.s -> Format.formatter -> concrete site -> unit
 val print_concrete_test :
   ?sigs:Signature.s -> Format.formatter -> concrete test -> unit
 val print_concrete_action :
