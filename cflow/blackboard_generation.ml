@@ -171,7 +171,7 @@ module Preblackboard =
       | Free      (** for binding sites *)
       | Bound     (** for binding sites (partial information) *)
       | Bound_to of predicate_id * CI.Po.K.agent_id * Instantiation.agent_name * Instantiation.site_name
-      (** for bindinf sites (complete information) *)
+      (** for binding sites (complete information) *)
       | Bound_to_type of Instantiation.agent_name * Instantiation.site_name (** for binding sites (partial information *)
       | Unknown (**  for agent presence, internal states, binding states (partial information *)
 
@@ -230,6 +230,8 @@ module Preblackboard =
         pre_side_effect_of_event: CI.Po.K.side_effect A.t;
         pre_fictitious_observable: step_id option; (*id of the step that closes all the side-effect mutex *)
         pre_level_of_event: Priority.level A.t;
+        site_symmetries:
+          (Instantiation.site_name list) Mods.Int2Map.t
       }
 
     let levels b = b.pre_level_of_event
@@ -396,6 +398,20 @@ module Preblackboard =
       in
       let () = Loggers.fprintf log "**" in
       let () = Loggers.print_newline log in
+      let () = Loggers.fprintf log "*Sites symmetries*" in
+      let () =
+        Mods.Int2Map.iter
+          (fun (ag,s) l ->
+             let () = Loggers.fprintf log "(%i,%i):" ag s in
+             let () =
+               List.iter
+                 (Loggers.fprintf log " %i,") l
+             in
+             let () = Loggers.print_newline log in
+             ()
+          )
+          blackboard.site_symmetries
+      in
       error,log_info,()
 
     (** information lattice *)
@@ -667,7 +683,32 @@ module Preblackboard =
       else Dummy
 
     (** initialisation*)
-    let init _parameter _handler log_info error  =
+    let init parameter handler log_info error =
+      let site_symmetries =
+        let sigs = Model.signatures handler.CI.Po.K.H.env in
+        let n_agents = Signature.size sigs in
+        match
+          CI.Po.K.H.get_current_symmetries_mode parameter
+        with
+        | Some Story_json.No ->
+          let rec aux_agent k map =
+            if k = n_agents then map
+            else
+              let map = map in
+              let n_sites = Signature.arity sigs k in
+              let rec aux_sites s map =
+                if s = n_sites then map
+                else
+                  let map = Mods.Int2Map.add (k,s) [s] map in
+                  aux_sites (s+1) map
+              in
+              let map = aux_sites 0 map in
+              aux_agent (k+1) map
+          in
+          aux_agent 0 Mods.Int2Map.empty
+        | Some Story_json.Full -> Mods.Int2Map.empty
+        | None -> Mods.Int2Map.empty 
+      in
       error,
       log_info,
       {
@@ -686,6 +727,7 @@ module Preblackboard =
         pre_observable_list = [];
         pre_fictitious_observable = None ;
         pre_level_of_event = A.make 1 Priority.highest ;
+        site_symmetries
       }
 
     let get_level_of_event parameter _handler log_info error blackboard eid =
@@ -1074,6 +1116,7 @@ module Preblackboard =
         data_structure
         with sure_tests = test::data_structure.sure_tests
       }
+
     let add_subs_test test ag_id data_structure =
       let old =
         AgentIdMap.find_default [] ag_id data_structure.other_agents_tests
@@ -2771,7 +2814,7 @@ module Preblackboard =
             )
             blackboard.pre_event
         in
-        let error, log_info, () = 
+        let error, log_info, () =
           if debug_mode
           then
             print_preblackboard parameter handler log_info error blackboard

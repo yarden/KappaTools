@@ -1,3 +1,4 @@
+type site_symmetries = No | Full
 type current_compression_mode = Weak | Strong | Causal
 
 
@@ -15,6 +16,7 @@ type 'a one_compression =
   {
     log_info: 'a Trace.Simulation_info.t list;
     story_mode: current_compression_mode;
+    site_symmetries: site_symmetries;
     story: story
   }
 
@@ -78,6 +80,16 @@ let story_mode_of_json = function
 | `String "Strong" -> Strong
 | x -> raise (Yojson.Basic.Util.Type_error ("Not a correct story mode",x))
 
+let sym_to_json = function
+  | No -> `String "No"
+  | Full -> `String "Full"
+
+let sym_of_json = function
+  | `String "No" -> No
+  | `String "Full" -> Full
+  | x -> raise (Yojson.Basic.Util.Type_error ("Not a correct symmetries mode",x))
+
+
 let to_json log_info_to_json one_compression =
   `Assoc
     [
@@ -88,13 +100,14 @@ let to_json log_info_to_json one_compression =
            (List.rev one_compression.log_info));
       "story_mode",
       story_mode_to_json one_compression.story_mode;
-
+      "site_symmetries",
+      sym_to_json  one_compression.site_symmetries;
       "story",
       story_to_json one_compression.story
     ]
 
 let of_json log_info_of_json = function
-  | `Assoc l as x when List.length l = 3 ->
+  | `Assoc l as x when List.length l = 4 ->
     begin
       try
         {
@@ -111,6 +124,8 @@ let of_json log_info_of_json = function
                 raise (Yojson.Basic.Util.Type_error ("Not a correct story computation",x))
             end
           ;
+          site_symmetries =
+            sym_of_json (List.assoc "site_symmetries" l);
           story = story_of_json
               (List.assoc "story" l) ;
           story_mode = story_mode_of_json (List.assoc "story_mode" l);

@@ -31,12 +31,12 @@ sig
   val get_strong_compression : compression_mode -> bool
 
 
-
   (** a struct which contains parameterizable options *)
   type parameter =
     {
       cache_size : int option ;
       current_compression_mode: Story_json.current_compression_mode option;
+      current_symmetries_mode: Story_json.site_symmetries option;
       compression_mode : compression_mode ;
       priorities_weak: Priority.priorities ;
       priorities_strong : Priority.priorities ;
@@ -62,8 +62,9 @@ sig
       dump: string -> unit;
     }
 
-  val get_current_compression_mode : parameter -> Story_json.current_compression_mode option 
-
+  val get_current_compression_mode : parameter -> Story_json.current_compression_mode option
+  val get_current_symmetries_mode : parameter ->
+    Story_json.site_symmetries option
   type handler =   (*handler to interpret abstract values*)
     {
       env: Model.t ;
@@ -90,6 +91,9 @@ sig
   val set_compression_weak: parameter -> parameter
   val set_compression_strong: parameter -> parameter
   val set_compression_none: parameter -> parameter
+  val set_current_symmetries_full: parameter -> parameter
+  val set_current_symmetries_no: parameter -> parameter
+
   val get_priorities: parameter -> Priority.priorities option
   val get_all_stories_per_obs: parameter -> bool
   val set_log_step: parameter -> bool -> parameter
@@ -156,6 +160,7 @@ module Cflow_handler =
       {
         cache_size : int option ;
         current_compression_mode: Story_json.current_compression_mode option;
+        current_symmetries_mode: Story_json.site_symmetries option;
         compression_mode : compression_mode ;
         priorities_weak: Priority.priorities ;
         priorities_strong : Priority.priorities ;
@@ -182,6 +187,9 @@ module Cflow_handler =
       }
 
     let get_current_compression_mode parameter = parameter.current_compression_mode
+
+    let get_current_symmetries_mode parameter =
+      parameter.current_symmetries_mode
 
     let build_parameter ~called_from
         ?(send_message=fun x ->
@@ -214,6 +222,7 @@ module Cflow_handler =
         server = server ;
         is_server_channel_on = server ;
         current_compression_mode = None ;
+        current_symmetries_mode = None ;
         priorities_weak = Priority.weak ;
         priorities_strong = Priority.strong ;
         priorities_causal = Priority.causal ;
@@ -248,6 +257,10 @@ module Cflow_handler =
     let set_compression_none p =
       {p with current_compression_mode = Some Story_json.Causal}
 
+    let set_current_symmetries_no p =
+      {p with current_symmetries_mode = Some Story_json.No}
+    let set_current_symmetries_full p =
+      {p with current_symmetries_mode = Some Story_json.Full}
 
 
     type handler =

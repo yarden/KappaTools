@@ -1,3 +1,4 @@
+type site_symmetries = No | Full
 type current_compression_mode = Weak | Strong | Causal
 
 type new_story =
@@ -14,6 +15,7 @@ type 'a one_compression =
   {
     log_info: 'a Trace.Simulation_info.t list;
     story_mode: current_compression_mode;
+    site_symmetries: site_symmetries; 
     story: story
   }
 

@@ -13,6 +13,7 @@ module type Cflow_handler =
         {
           cache_size : int option ;
           current_compression_mode: Story_json.current_compression_mode option;
+          current_symmetries_mode: Story_json.site_symmetries option;
           compression_mode : compression_mode ;
           priorities_weak: Priority.priorities ;
           priorities_strong : Priority.priorities ;
@@ -39,6 +40,8 @@ module type Cflow_handler =
         }
 
     val get_current_compression_mode : parameter -> Story_json.current_compression_mode option
+    val get_current_symmetries_mode : parameter ->
+      Story_json.site_symmetries option
 
     type handler =   (*handler to interpret abstract values*)
         {
@@ -66,6 +69,8 @@ module type Cflow_handler =
     val set_compression_weak: parameter -> parameter
     val set_compression_strong: parameter -> parameter
     val set_compression_none: parameter -> parameter
+    val set_current_symmetries_full: parameter -> parameter
+    val set_current_symmetries_no: parameter -> parameter
     val get_priorities: parameter -> Priority.priorities option
     val get_all_stories_per_obs: parameter -> bool
     val set_log_step: parameter -> bool -> parameter

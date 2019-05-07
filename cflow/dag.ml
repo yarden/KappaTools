@@ -76,21 +76,6 @@ let _dummy_cannonical_form = []
 let _dummy_prehash = []
 
 let _print_story_info logger _parameter json =
-  (*List.iter
-    (fun
-      story_info ->
-      let () =
-        Loggers.fprintf
-          logger
-          "id:%i, time:%f, event:%i"
-          story_info.Trace.Simulation_info.story_id
-          story_info.Trace.Simulation_info.story_time
-          story_info.Trace.Simulation_info.story_event
-      in
-      Loggers.print_newline logger
-    )
-    story_info_list
-  *)
   let channel_opt = Loggers.channel_of_logger logger in
   let () =
     begin
@@ -168,10 +153,17 @@ let print_graph logger parameter _handler error id story_info graph =
         | None -> Story_json.Causal
         | Some x -> x
   in
+  let current_symmetries_mode parameter =
+    match H.get_current_symmetries_mode parameter
+    with
+    | None -> Story_json.No
+    | Some x -> x
+  in
   let
     result =
     {
       Story_json.log_info = story_info ;
+      Story_json.site_symmetries = current_symmetries_mode parameter ;
       Story_json.story_mode = current_compression_mode parameter ;
       Story_json.story =
         Story_json.New
@@ -787,9 +779,16 @@ module BucketTable =
                 | None -> Story_json.Causal
                 | Some x -> x
           in
+          let current_symmetries_mode parameter =
+            match H.get_current_symmetries_mode parameter
+            with
+            | None -> Story_json.No
+            | Some x -> x
+          in
           let result =
             {
               Story_json.story_mode = current_compression_mode parameter;
+              Story_json.site_symmetries = current_symmetries_mode parameter;
               Story_json.log_info = story_info ;
               Story_json.story = Story_json.Same_as id
             }
