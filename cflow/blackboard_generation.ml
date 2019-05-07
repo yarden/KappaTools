@@ -707,7 +707,7 @@ module Preblackboard =
           in
           aux_agent 0 Mods.Int2Map.empty
         | Some Story_json.Full -> Mods.Int2Map.empty
-        | None -> Mods.Int2Map.empty 
+        | None -> Mods.Int2Map.empty
       in
       error,
       log_info,
@@ -856,39 +856,63 @@ module Preblackboard =
         old_agents: Instantiation.agent_name AgentIdMap.t;
         old_agents_potential_substitution: CI.Po.K.agent_id list AgentIdMap.t;
         sure_agents: AgentIdSet.t;
-        sure_links: AgentId2Set.t;
         other_links: AgentId2Set.t;
         sites_in_other_links: SiteIdSet.t;
         sites_in_other_action_links: SiteIdSet.t;
-        other_links_test_sites: (CI.Po.K.agent_id) SiteIdMap.t;
-        other_links_action_sites: (CI.Po.K.agent_id) SiteIdMap.t;
-        sure_tests: Instantiation.concrete Instantiation.test list ;
-        sure_actions: Instantiation.concrete Instantiation.action list ;
-        create_actions: Instantiation.concrete Instantiation.action list ;
-        sure_side_effects: (Instantiation.concrete Instantiation.site*Instantiation.concrete Instantiation.binding_state) list;
-        other_agents_tests: Instantiation.concrete Instantiation.test list AgentIdMap.t ;
-        other_agents_actions: Instantiation.concrete Instantiation.action list AgentIdMap.t ;
-        other_links_tests: Instantiation.concrete Instantiation.test list AgentId2Map.t;
-        other_links_actions: Instantiation.concrete Instantiation.action list AgentId2Map.t ;
+        other_links_test_sites: (* relation, for the bonds that are tested from one extremity to the other *)
+          (CI.Po.K.agent_id*Instantiation.site_name) SiteIdMap.t;
+        other_links_action_sites: (* relation, for the bonds that are created from one extremity to the other *)
+          (CI.Po.K.agent_id*Instantiation.site_name) SiteIdMap.t;
+
+        sure_tests: (* test on which no substitution is needed *)
+          Instantiation.concrete Instantiation.test list ;
+
+        sure_actions: (* actions on which no substitution is needed *)
+          Instantiation.concrete Instantiation.action list ;
+
+        create_actions: (* creaction actions *)
+          Instantiation.concrete Instantiation.action list ;
+
+        sure_side_effects:
+          (* side effect actions on which no substitution is needed *)
+          (Instantiation.concrete Instantiation.site*Instantiation.concrete Instantiation.binding_state) list;
+
+        other_agents_tests: (* test that may be applied somewhere else *)
+            Instantiation.concrete Instantiation.test list AgentIdMap.t ;
+        other_agents_actions: (* actions that may be applied somewhere else *)
+          Instantiation.concrete Instantiation.action list
+            AgentIdMap.t ;
+        other_links_tests: (* test for the existence of bonds that may be applied somewhere else *)
+          Instantiation.concrete Instantiation.test list AgentId2Map.t;
+        other_links_actions: (* action for the creating new bonds that may be applied somewhere else *)
+          Instantiation.concrete Instantiation.action list AgentId2Map.t ;
+
         other_links_priority: AgentId2Set.t ;
+
         other_agents_side_effects:
           (Instantiation.concrete Instantiation.site*Instantiation.concrete Instantiation.binding_state) list AgentIdMap.t ;
+
         subs_agents_involved_in_links: AgentIdSet.t;
         rule_agent_id_mutex: predicate_id AgentIdMap.t;
         rule_agent_id_subs: predicate_id AgentIdMap.t;
         mixture_agent_id_mutex: predicate_id AgentIdMap.t;
         links_mutex: predicate_id AgentId2Map.t;
+
+        site_id_mutex: predicate_id SiteIdMap.t;
+        site_id_subs: predicate_id SiteIdMap.t;
+        mixture_site_mutex: predicate_id SiteIdMap.t;
+
         removed_agents: AgentIdSet.t ;
         removed_sites_in_other_links: SiteIdSet.t ;
       }
 
     let init_data_structure_strong =
       {
-        new_agents = AgentIdSet.empty;
+        new_agents = AgentIdSet.empty; (* Agents that are created *)
         old_agents = AgentIdMap.empty;
         old_agents_potential_substitution = AgentIdMap.empty;
         sure_agents = AgentIdSet.empty;
-        sure_links = AgentId2Set.empty;
+
         other_links = AgentId2Set.empty;
         other_links_test_sites = SiteIdMap.empty;
         other_links_action_sites = SiteIdMap.empty;
@@ -911,6 +935,9 @@ module Preblackboard =
         mixture_agent_id_mutex = AgentIdMap.empty;
         removed_agents = AgentIdSet.empty ;
         removed_sites_in_other_links = SiteIdSet.empty ;
+        site_id_mutex = SiteIdMap.empty;
+        site_id_subs =  SiteIdMap.empty;
+        mixture_site_mutex = SiteIdMap.empty;
       }
 
     let print_data_structure parameters handler error data =
@@ -952,8 +979,8 @@ module Preblackboard =
       let () = Loggers.print_newline logger in
       let _ =
         SiteIdMap.iter
-          (fun (a,b) c ->
-             Loggers.fprintf logger " %i.%i -> %i " a b c;
+          (fun (a,b) (c,d) ->
+             Loggers.fprintf logger " %i.%i -> %i.%i " a b c d;
              Loggers.print_newline logger
           ) data.other_links_test_sites
       in
@@ -961,8 +988,8 @@ module Preblackboard =
       let () = Loggers.print_newline logger in
       let _ =
         SiteIdMap.iter
-          (fun (a,b) c ->
-             Loggers.fprintf logger " %i.%i -> %i " a b c;
+          (fun (a,b) (c,d) ->
+             Loggers.fprintf logger " %i.%i -> %i.%i " a b c d;
              Loggers.print_newline logger)
           data.other_links_action_sites
       in
@@ -1217,6 +1244,9 @@ module Preblackboard =
       let (action_list,side_effect) = Trace.actions_of_step step in
       let data_structure = init_data_structure_strong in
       let data_structure =
+        (* We collect the id of the agents that are created;
+           We collect the id of the agents that get removed;
+           We collect the bonds that are created.*)
         List.fold_left
           (fun data_structure action ->
              match
@@ -1235,8 +1265,8 @@ module Preblackboard =
                {data_structure
                 with
                  other_links_action_sites =
-                   SiteIdMap.add site1_id ag2_id
-                     (SiteIdMap.add site2_id ag1_id data_structure.other_links_action_sites)}
+                   SiteIdMap.add site1_id site2_id
+                     (SiteIdMap.add site2_id site1_id data_structure.other_links_action_sites)}
              | Instantiation.Remove agent ->
                {data_structure
                 with removed_agents = AgentIdSet.add (CI.Po.K.agent_id_of_agent agent) data_structure.removed_agents}
@@ -1245,6 +1275,9 @@ module Preblackboard =
           action_list
       in
       let data_structure =
+        (* We collect the set of agents that are required to apply the rule *)
+        (* we collect the set of the bonds that are tested and removed *)
+        (* we collect the set of the bonds that are tested (no matter they are removed or not) *)
         List.fold_left
           (fun data_structure test ->
              match
@@ -1280,8 +1313,8 @@ module Preblackboard =
                {data_structure
                 with
                  other_links_test_sites =
-                   SiteIdMap.add site1_id ag2_id
-                     (SiteIdMap.add site2_id ag1_id data_structure.other_links_test_sites)}
+                   SiteIdMap.add site1_id site2_id
+                     (SiteIdMap.add site2_id site1_id data_structure.other_links_test_sites)}
 
              | Instantiation.Is_Free _ | Instantiation.Has_Binding_type _
              | Instantiation.Has_Internal _ | Instantiation.Is_Bound _ -> data_structure)
@@ -1289,20 +1322,24 @@ module Preblackboard =
           test_list
       in
       let tested_sites =
+        (* We collect the set of the sites that occur in links that are tested *)
         SiteIdMap.fold
           (fun a _ -> SiteIdSet.add a)
           data_structure.other_links_test_sites
           SiteIdSet.empty
       in
       let mod_sites =
+        (* We collect the set of the sites that occur in links that are created *)
         SiteIdMap.fold
           (fun a _ -> SiteIdSet.add a)
           data_structure.other_links_action_sites
           SiteIdSet.empty
       in
+      (* We collect the set of the sites that occur both in links that are created and in links that are tested *)
       let priority_sites =
         SiteIdSet.inter tested_sites mod_sites
       in
+      (* What are the potential substitutions for the agent that are tested in the rule *)
       let data_structure =
         { data_structure
           with old_agents_potential_substitution =
@@ -1313,6 +1350,7 @@ module Preblackboard =
       let data_structure =
         { data_structure with sure_agents = data_structure.new_agents }
       in
+      (* the agents for which there is only one possible id cannot be substituted *)
       let data_structure =
         { data_structure with
           sure_agents =
@@ -1333,12 +1371,29 @@ module Preblackboard =
         else
           (fun x -> AgentIdSet.mem x data_structure.sure_agents)
       in
+      let sure_site =
+        if init
+        then
+          (fun _ -> true)
+        else
+          (fun site ->
+             match
+               SiteIdMap.find_default [snd site]
+                 site blackboard.site_symmetries
+             with
+             | [_] -> true
+             | _ -> false
+          )
+      in
+      let _ = sure_site in
       let data_structure =
+        (* clean the potential substitutions of sure agents *)
         {
           data_structure
           with
             old_agents_potential_substitution =
-              AgentIdSet.fold AgentIdMap.remove
+              AgentIdSet.fold
+                AgentIdMap.remove
                 data_structure.sure_agents
                 data_structure.old_agents_potential_substitution
         }
@@ -1360,7 +1415,9 @@ module Preblackboard =
                let ag_id2 = CI.Po.K.agent_id_of_agent agent2 in
                let site_id1 = CI.Po.K.site_name_of_site site1 in
                let site_id2 = CI.Po.K.site_name_of_site site2 in
-               if sure_agent ag_id1 && not (SiteIdSet.mem (ag_id1,site_id1) priority_sites) && sure_agent ag_id2 && not (SiteIdSet.mem (ag_id2,site_id2) priority_sites)
+               if sure_site (CI.Po.K.agent_name_of_agent agent1, site_id1)
+               && sure_site (CI.Po.K.agent_name_of_agent agent2, site_id2)
+               && sure_agent ag_id1 && not (SiteIdSet.mem (ag_id1,site_id1) priority_sites) && sure_agent ag_id2 && not (SiteIdSet.mem (ag_id2,site_id2) priority_sites)
                then
                  data_structure
                else
@@ -1452,7 +1509,7 @@ module Preblackboard =
                      SiteIdMap.find_option
                        site_id1 data_structure.other_links_action_sites
                    with
-                   | Some ag_id2 ->
+                   | Some (ag_id2,_) ->
                      add_subs_test_link test (ag_id,ag_id2) data_structure
                    | None ->
                      add_subs_test test ag_id data_structure
@@ -1526,7 +1583,7 @@ module Preblackboard =
                  begin
                    match SiteIdMap.find_option
                            site_id1 data_structure.other_links_test_sites with
-                   | Some ag_id2 ->
+                   | Some (ag_id2,_) ->
                      add_subs_action_link action (ag_id,ag_id2) data_structure
                    | None ->
                      add_subs_action action ag_id data_structure
