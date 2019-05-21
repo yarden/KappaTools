@@ -29,6 +29,10 @@ module Int2SetMap : SetMap.S with type elt = int*int
 module Int2Set = Int2SetMap.Set
 module Int2Map = Int2SetMap.Map
 
+module Int22SetMap : SetMap.S with type elt = (int*int)*(int*int)
+module Int22Set = Int22SetMap.Set
+module Int22Map = Int22SetMap.Map
+
 module CharSetMap : SetMap.S with type elt = char
 module CharSet = CharSetMap.Set
 module CharMap = CharSetMap.Map
