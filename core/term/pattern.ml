@@ -59,27 +59,35 @@ let compare_canonicals cc cc' = Mods.int_compare cc cc'
 
 let is_equal_canonicals cc cc' = compare_canonicals cc cc' = 0
 
-let hash_prime = 29
+let raw_find_ty tys id =
+  let rec aux i =
+    assert (i >= 0);
+    if List.mem id tys.(i) then i else aux (pred i)
+  in aux (Array.length tys - 1)
+
+let find_ty cc id = raw_find_ty cc.nodes_by_type id
+
+let hash_prime = 31
 
 let coarse_hash cc =
-  let plus_internal acc s i =
-    if i < 0 then acc else Tools.cantor_pairing (succ s) (succ i) + acc in
-  let node_shape =
-    Mods.IntMap.fold
-      (fun n e acc ->
+  Mods.IntMap.fold
+    (fun n e acc ->
+       let ty = find_ty cc n in
+       let out =
          Tools.array_fold_lefti
-           (fun s acc -> function
-              | UnSpec, i -> plus_internal acc s i
-              | Free, i -> plus_internal (3 + s*3 + acc) s i
+           (fun s acc l ->
+              let s = Tools.cantor_pairing ty s in
+              match l with 
+              | UnSpec, i -> (i + hash_prime * acc) * hash_prime
+              | Free, i -> 1 + (i + hash_prime * acc) * hash_prime
               | Link (n',s'), i ->
-                let acc' = plus_internal acc s i in
-                let extra = Tools.cantor_pairing (1+min s s') (1+max s s') in
-                if (n = n' && s < s') || n < n' then extra * 7 + acc' else acc')
-           acc e)
-      cc.nodes 0 in
-  Array.fold_right
-    (fun l acc -> List.length l + hash_prime * acc)
-    cc.nodes_by_type node_shape
+                let extra =  hash_prime * (1+min s s') + (1+max s s') in
+                if (n = n' && s < s') || n < n'
+                then 2 + extra + (i + acc * hash_prime) * hash_prime
+                else 2 + (i + acc * hash_prime) * hash_prime)
+           ty e in
+       out lxor acc)
+    cc.nodes 0
 
 let id_to_yojson cc = `Int cc
 
@@ -101,14 +109,6 @@ let empty_cc sigs =
   let nbt = Array.make (Signature.size sigs) [] in
   {nodes_by_type = nbt; recogn_nav = [];
    nodes = Mods.IntMap.empty;}
-
-let raw_find_ty tys id =
-  let rec aux i =
-    assert (i >= 0);
-    if List.mem id tys.(i) then i else aux (pred i)
-  in aux (Array.length tys - 1)
-
-let find_ty cc id = raw_find_ty cc.nodes_by_type id
 
 let add_origin deps = function
   | None -> deps
@@ -1296,7 +1296,13 @@ module PreEnv = struct
           depending=add_origin Operator.DepSet.empty origin}],
         identity_injection element,element,p_id
       | h :: t -> match equal ~debugMode element h.element with
-        | None -> let a,b,c,d = aux t in h::a,b,c,d
+        | None ->
+          let () = Format.eprintf "%a vs %a@."
+              (print_cc ~noCounters:true ?dotnet:None ?full_species:None ?sigs:None ?cc_id:None ~with_id:false)
+              element
+              (print_cc ~noCounters:true ?dotnet:None ?full_species:None ?sigs:None ?cc_id:None ~with_id:false)
+              h.element in
+          let a,b,c,d = aux t in h::a,b,c,d
         | Some r ->
           let roots =
             if h.roots <> None || not toplevel then h.roots
