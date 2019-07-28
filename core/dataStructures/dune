@@ -1,5 +1,6 @@
 (library
  (name kappa_generic_toolset)
- (libraries yojson result logs stdlib-shims bigarray)
+ (libraries yojson result logs stdlib-shims bigarray landmarks)
+ (preprocess (pps landmarks.ppx --auto))
  (public_name kappa-library.generic)
  (flags (:standard -w @a)))

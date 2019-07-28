@@ -2,7 +2,8 @@
   (name KaSim)
   (libraries lwt.unix fmt num yojson
              kappa-library.generic kappa-library.mixtures kappa-library.terms kappa-library.runtime
-             kappa_version kappa_grammar kappa_cli)
+             kappa_version kappa_grammar kappa_cli landmarks)
+ (preprocess (pps landmarks.ppx --auto))
   (public_name KaSim)
   (package kappa-binaries)
 (flags (:standard -w @a

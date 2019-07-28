@@ -1,5 +1,6 @@
 (library
  (name kappa_mixtures)
- (libraries kappa_generic_toolset)
+ (libraries kappa_generic_toolset landmarks)
+ (preprocess (pps landmarks.ppx --auto))
  (public_name kappa-library.mixtures)
  (flags (:standard -w @a -open Kappa_generic_toolset)))

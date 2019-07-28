@@ -237,28 +237,27 @@ let () =
       conf.Configuration.deltaActivitiesFileName in
     let () =
       if not kasim_args.Kasim_args.compileMode then
-        match kasim_args.Kasim_args.logFile with
-        | None -> ()
-        | Some filename ->
-          Outputs.initial_inputs
-            {Configuration.seed = Some theSeed;
-             Configuration.progressChar = conf.Configuration.progressChar;
-             Configuration.progressSize = conf.Configuration.progressSize;
-             Configuration.dumpIfDeadlocked; Configuration.maxConsecutiveClash;
+        let () =
+          match kasim_args.Kasim_args.logFile with
+          | None -> ()
+          | Some filename ->
+            Outputs.initial_inputs
+              {Configuration.seed = Some theSeed;
+               Configuration.progressChar = conf.Configuration.progressChar;
+               Configuration.progressSize = conf.Configuration.progressSize;
+               Configuration.dumpIfDeadlocked; Configuration.maxConsecutiveClash;
              Configuration.deltaActivitiesFileName;
-             Configuration.traceFileName = user_trace_file;
-             Configuration.initial =
-               if Tools.float_is_zero (Counter.init_time counter) then None
-               else Some (Counter.init_time counter);
-             Configuration.plotPeriod = Some (Counter.plot_period counter);
-             Configuration.outputFileName = Some plot_file;}
-            env init_l ~filename
-    in
-    Kappa_files.setCheckFileExists
-      ~batchmode:cli_args.Run_cli_args.batchmode
-      plot_file;
-    if not kasim_args.Kasim_args.compileMode then
-      Outputs.initialize deltaActivitiesFileName trace_file plotPack env;
+               Configuration.traceFileName = user_trace_file;
+               Configuration.initial =
+                 if Tools.float_is_zero (Counter.init_time counter) then None
+                 else Some (Counter.init_time counter);
+               Configuration.plotPeriod = Some (Counter.plot_period counter);
+               Configuration.outputFileName = Some plot_file;}
+              env init_l ~filename in
+        let () = Kappa_files.setCheckFileExists
+            ~batchmode:cli_args.Run_cli_args.batchmode
+            plot_file in
+        Outputs.initialize deltaActivitiesFileName trace_file plotPack env in
 
     let outputs = Outputs.go in
     let () =

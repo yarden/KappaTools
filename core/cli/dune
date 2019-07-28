@@ -5,7 +5,9 @@
 	       (labltk.jpf -> superargTk.tk.ml)
 	       ( -> superargTk.notk.ml))
 	     kappa_grammar
-	     kappa-library.runtime kappa_version)
+	     kappa-library.runtime kappa_version landmarks)
+ (preprocess (pps landmarks.ppx --auto))
+  (modules (:standard \ superargTk_tk superargTk_notk))
   (flags (:standard -w @a
      -open Kappa_version
 	 -open Kappa_generic_toolset
