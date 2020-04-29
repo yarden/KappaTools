@@ -161,6 +161,9 @@ let compress_and_print
                   Loggers.fprintf (S.PH.B.PB.CI.Po.K.H.get_logger parameter)
                     "\t - blackboard generation@."
               in
+              let error, log_info, step_list=
+                U.fill_siphon parameter handler log_info error step_list
+              in
               let error,log_info,step_list = U.make_unambiguous parameter handler log_info error step_list in
               let error,log_info,blackboard = U.convert_trace_into_musical_notation parameter handler log_info error step_list in
               let () =
@@ -266,9 +269,16 @@ let compress_and_print
                     in
                     let error,log_info,trace_before_compression =
                       U.fill_siphon parameter handler log_info error
-                        trace_before_compression 
+                        trace_before_compression
                     in
-
+                    let error,log_info,trace_before_compression =
+                      U.make_unambiguous parameter handler log_info error
+                        trace_before_compression
+                    in
+                    let error, log_info,trace_before_compression =
+                      U.cut parameter handler log_info error
+                        trace_before_compression
+                    in
                     let error,log_info,causal_story_array =
                       U.store_trace parameter handler log_info error trace_before_compression info story_list
                     in

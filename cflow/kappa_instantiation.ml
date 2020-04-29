@@ -23,6 +23,11 @@ let compose_with_handler f g parameter handler error x =
   let error,y = g parameter handler error x in
   f parameter handler error y
 
+let debug_message x =
+  (if debug_mode then Format.fprintf else Format.ifprintf)
+    Format.std_formatter
+    x
+
 module P = StoryProfiling.StoryStats
 
 let line (_,a,_,_) = a
@@ -281,12 +286,12 @@ module Cflow_linker =
 
     let dump pi =
       match pi with
-      | PI.Create _ -> Format.printf "CREATE @."
-      | PI.Mod_internal _ -> Format.printf "MODIFY @."
-      | PI.Remove _ -> Format.printf "REMOVE @."
-      | PI.Bind _ -> Format.printf "BIND @."
-      | PI.Free _ -> Format.printf "FREE @."
-      | PI.Bind_to _ -> Format.printf "BIND TO @."
+      | PI.Create _ -> debug_message "CREATE @."
+      | PI.Mod_internal _ -> debug_message "MODIFY @."
+      | PI.Remove _ -> debug_message "REMOVE @."
+      | PI.Bind _ -> debug_message "BIND @."
+      | PI.Free _ -> debug_message "FREE @."
+      | PI.Bind_to _ -> debug_message "BIND TO @."
 
     let convert_init remanent step_list action_list =
       let extract_agent id soup =
@@ -311,13 +316,13 @@ module Cflow_linker =
           let standalone =
             List.for_all
               (function
-                | (PI.Create _ | PI.Free _) -> true
-                | PI.Mod_internal (_,state) -> state=0 
+                | (PI.Create _ | PI.Free _
+                  | PI.Mod_internal _) -> true
                 | (PI.Bind_to _ | PI.Bind _ | PI.Remove _) -> false)
               this in
           let this = Trace.Init this in
           if standalone then
-            let _ = Format.printf "INIT:%i %i (DEFAULT STATE)  @." (line __POS__) id in
+            let _ = debug_message "INIT:%i %i (DEFAULT STATE)  @." (line __POS__) id in
             let map =
               List.fold_left
                 (fun map -> function
@@ -333,7 +338,7 @@ module Cflow_linker =
               }
             in aux (AgentIdMap.add id agent_info recur) (this::acc) soup' t
           else
-            let _ = Format.printf "INIT:%i %i (NON DEFAULT STATE -> IGNORED) @." (line __POS__) id in
+            let _ = debug_message "INIT:%i %i (NON DEFAULT STATE -> IGNORED) @." (line __POS__) id in
             aux recur (this::acc) soup' t
       in aux remanent step_list action_list action_list
 
@@ -352,7 +357,7 @@ module Cflow_linker =
       SiteSet.is_empty
         (SiteSet.inter agent_info.sites_with_wrong_internal_state restriction)
       in
-      let () = Format.printf "AS_INIT ? %s %s @."
+      let () = debug_message "AS_INIT ? %s %s @."
           (if b1 then "(all sites are free)" else "(some sites are bound)")
           (if b2 then "(all sites are in their initial state)" else "(some sites are not in their initial state)")
       in
@@ -363,13 +368,13 @@ module Cflow_linker =
       let s_name = site_name_of_site site in
       match AgentIdMap.find_option agid remanent with
       | None ->
-        let _ = Format.printf "MOD:%i %i.%i (untracked agent)@." (line __POS__) agid s_name
+        let _ = debug_message "MOD:%i %i.%i (untracked agent)@." (line __POS__) agid s_name
         in
         remanent,set
       | Some ag_info ->
         match SiteMap.find_option s_name ag_info.internal_states with
         | None ->
-          let _ = Format.printf "MOD:%i %i.%i (unknown site) @." (line __POS__) agid s_name in
+          let _ = debug_message "MOD:%i %i.%i (unknown site) @." (line __POS__) agid s_name in
         remanent,set
         | Some state_ref ->
           if state_ref = state
@@ -383,7 +388,7 @@ module Cflow_linker =
                     sites_with_wrong_internal_state =
                       SiteSet.remove s_name ag_info.sites_with_wrong_internal_state}
                 in
-                let _ = Format.printf "MOD:%i %i.%i (regular case)@." (line __POS__) agid s_name
+                let _ = debug_message "MOD:%i %i.%i (regular case)@." (line __POS__) agid s_name
                 in
                 let remanent = AgentIdMap.add agid ag_info remanent in
                 begin
@@ -396,7 +401,7 @@ module Cflow_linker =
                     set
                 end
               else
-                let _ = Format.printf "MOD:%i %i.%i (site already in initial state)@." (line __POS__) agid s_name
+                let _ = debug_message "MOD:%i %i.%i (site already in initial state)@." (line __POS__) agid s_name
               in
               remanent,set
             end
@@ -404,11 +409,11 @@ module Cflow_linker =
             begin
               if SiteSet.mem s_name ag_info.sites_with_wrong_internal_state
               then
-                let _ = Format.printf "MOD:%i %i.%i (site already in initial state)@." (line __POS__) agid s_name
+                let _ = debug_message "MOD:%i %i.%i (site already in initial state)@." (line __POS__) agid s_name
               in
               remanent,set
               else
-                let _ = Format.printf "MOD:%i %i.%i (regular case)@." (line __POS__) agid s_name
+                let _ = debug_message "MOD:%i %i.%i (regular case)@." (line __POS__) agid s_name
                 in
                 let ag_info =
                   {
@@ -430,12 +435,12 @@ module Cflow_linker =
     let unbind_side restriction_map (agid,s_name) (remanent,set) =
       match AgentIdMap.find_option agid remanent with
       | None ->
-        let _ = Format.printf "UNBIND:%i %i.%i (untracked agent)@." (line __POS__) agid s_name in
+        let _ = debug_message "UNBIND:%i %i.%i (untracked agent)@." (line __POS__) agid s_name in
         remanent,set
       | Some ag_info ->
         if SiteSet.mem s_name ag_info.bound_sites
         then
-          let _ = Format.printf "UNBIND:%i %i.%i (regular case)@." (line __POS__) agid s_name in
+          let _ = debug_message "UNBIND:%i %i.%i (regular case)@." (line __POS__) agid s_name in
           let ag_info =
             {
               ag_info with
@@ -453,7 +458,7 @@ module Cflow_linker =
               set
           end
         else
-          let _ = Format.printf "UNBIND:%i %i.%i (already unbound)@." (line __POS__) agid s_name in
+          let _ = debug_message "UNBIND:%i %i.%i (already unbound)@." (line __POS__) agid s_name in
           remanent,set
 
 
@@ -467,12 +472,12 @@ module Cflow_linker =
       let s_name = site_name_of_site site in
       match AgentIdMap.find_option agid remanent with
       | None ->
-        let _ = Format.printf "BIND:%i %i.%i (untracked agent)@." (line __POS__) agid s_name in
+        let _ = debug_message "BIND:%i %i.%i (untracked agent)@." (line __POS__) agid s_name in
     remanent,set
       | Some ag_info ->
         if SiteSet.mem s_name ag_info.bound_sites
         then
-          let _ = Format.printf "BIND:%i %i.%i (already bound)@."
+          let _ = debug_message "BIND:%i %i.%i (already bound)@."
               (line __POS__) agid s_name in
           remanent,set
         else
@@ -482,7 +487,7 @@ module Cflow_linker =
               bound_sites =
                 SiteSet.add s_name ag_info.bound_sites}
           in
-          let _ = Format.printf "BIND:%i %i.%i (REGULAR CASE)@." (line __POS__) agid s_name in
+          let _ = debug_message "BIND:%i %i.%i (REGULAR CASE)@." (line __POS__) agid s_name in
           let remanent = AgentIdMap.add agid ag_info remanent in
           begin
             if as_init restriction_map agid ag_info
@@ -538,7 +543,7 @@ module Cflow_linker =
         tests
 
     let fill_siphon refined_step_list =
-      let _ = Format.printf "@." in
+      let _ = debug_message "@." in
       let rev_trace = List.rev refined_step_list in
       let scope = AgentIdMap.empty in
       let refined_step_with_scope_list,_ =
@@ -560,7 +565,7 @@ module Cflow_linker =
       let a,_ =
         List.fold_left
           (fun (step_list,remanent) refined_step ->
-             let () = Format.printf "NEW EVENT @." in
+             let () = debug_message "NEW EVENT @." in
              match refined_step with
              | (Trace.Init init,_) -> convert_init remanent step_list init
              | (Trace.Rule (_,event,_),scope)
