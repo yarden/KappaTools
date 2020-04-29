@@ -264,6 +264,11 @@ let compress_and_print
                             log_info info in
                         [info]
                     in
+                    let error,log_info,trace_before_compression =
+                      U.fill_siphon parameter handler log_info error
+                        trace_before_compression 
+                    in
+
                     let error,log_info,causal_story_array =
                       U.store_trace parameter handler log_info error trace_before_compression info story_list
                     in
